@@ -5,7 +5,7 @@ on:
    workflow_dispatch:
      inputs:
        KERNEL_TREE_1:
-         description: 'Kernel Tree 1'
+         description: 'Kernel Tree'
          default: 'https://github.com/SenseiiX/fusionX_sm8250'
          required: true
        KERNEL_TREE_BRANCH_1:
@@ -16,16 +16,16 @@ on:
          options:
            - munch-sus
            - exp-sus
-           - dev-base
+           - fx-base
        KERNEL_TREE_BRANCH_2:
          description: 'Kernel Tree Branch 2'
          default: 'exp-nxt'
          required: false
          type: choice
          options:
-           - munch-next
+           - munch-nxt
            - exp-nxt
-           - dev-base
+           - fx-base
        VERSION:
          description: 'Zip Version'
          default: '1.x'
@@ -57,8 +57,8 @@ jobs:
      steps:
        - id: set-targets
          run: |
-           # Only build NEXT kernel if both are set to dev-base
-           if [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "dev-base" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "dev-base" ]]; then
+           # Only build NEXT kernel if both are set to fx-base
+           if [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "fx-base" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "fx-base" ]]; then
              echo "build_kernel_1=false" >> $GITHUB_OUTPUT
              echo "build_kernel_2=true" >> $GITHUB_OUTPUT
            else
@@ -157,7 +157,7 @@ jobs:
            export ARCH=arm64
            export SUBARCH=ARM64
            export KBUILD_BUILD_USER="senseix"
-           export KBUILD_BUILD_HOST="telegram"
+           export KBUILD_BUILD_HOST="ubuntu"
            cd kernel_tree
            make O=out vendor/munch_defconfig
            make O=out CC=clang -j$(nproc --all) CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1
@@ -309,7 +309,7 @@ jobs:
            export ARCH=arm64
            export SUBARCH=ARM64
            export KBUILD_BUILD_USER="senseix"
-           export KBUILD_BUILD_HOST="telegram"
+           export KBUILD_BUILD_HOST="ubuntu"
            cd kernel_tree
            make O=out vendor/munch_defconfig
            make O=out CC=clang -j$(nproc --all) CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1
