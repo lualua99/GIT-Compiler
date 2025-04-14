@@ -456,6 +456,8 @@ jobs:
            LTO_CONFIG=$(cat build-metrics/lto-config-1 | head -n 1 | cut -d' ' -f2)
            CLANG_TOOLCHAIN=$(cat build-metrics/lto-config-1 | tail -n 1 | cut -d' ' -f2)
            
+           BASE_NAME="FusionX-SUSFS"
+
            # Determine build type based on branch combinations
            if [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "fx-base" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "fx-base" ]]; then
              BUILD_TYPE="Personal Build"
@@ -467,7 +469,7 @@ jobs:
              BUILD_TYPE="Debug Build"
            fi
            
-           ZIP_NAME="${BASE_NAME}-${{ github.event.inputs.VERSION }}-${COMPILED_DATE}"
+            ZIP_NAME="[${BASE_NAME}]-${{ github.event.inputs.VERSION }}-${COMPILED_DATE}"
            KERNEL_NAME="${BASE_NAME}"
            
            echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
@@ -494,24 +496,72 @@ jobs:
            seconds=$((duration % 60))
            echo "build_time=${minutes}m ${seconds}s" >> $GITHUB_OUTPUT
        
-       - name: Upload Flashable Kernel Zip to Telegram
-         uses: appleboy/telegram-action@master
-         with:
-           to: ${{ secrets.TELEGRAM_CHAT_ID }}
-           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-           document: ${{ env.ZIP_NAME }}.zip
-           format: html
-           message: |
-            <b>✅ ${{ env.KERNEL_NAME }} Build Complete!</b> 
-            <b>🔻Yml:</b> All in One  
-            <b>📅 Date:</b> ${{ steps.read_metrics.outputs.start_date }}
-            <b>🕔 Build Duration:</b> ${{ steps.read_metrics.outputs.build_time }}
-            <b>📱 Device Codename:</b> munch
-            <b>📑 Branch:</b> ${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}
-            <b>🔧 Lto:</b> ${{ env.LTO_CONFIG }}
-            <b>⚙️ Toolchain:</b> ${{ env.CLANG_TOOLCHAIN }}
-            <b>📂 Build Type:</b> ${{ env.BUILD_TYPE }} Release
-          
+       - name: Install Python dependencies
+         run: pip install requests python-telegram-bot
+       
+       - name: Send Telegram message
+         env:
+           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+           START_DATE: ${{ steps.read_metrics.outputs.start_date }}
+           BUILD_TIME: ${{ steps.read_metrics.outputs.build_time }}
+           BRANCH: ${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}
+         run: |
+           cat > send_telegram.py << 'EOF'
+           import os
+           import requests
+           
+           def send_telegram_message(bot_token, chat_id, message, file_path):
+               url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
+               
+               message_html = message
+               
+               files = {
+                   'document': open(file_path, 'rb')
+               }
+               
+               data = {
+                   'chat_id': chat_id,
+                   'caption': message_html,
+                   'parse_mode': 'HTML'
+               }
+               
+               response = requests.post(url, data=data, files=files)
+               return response.json()
+           
+           # Get environment variables
+           bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+           chat_id = os.environ.get('TELEGRAM_CHAT_ID')
+           kernel_name = os.environ.get('KERNEL_NAME')
+           start_date = os.environ.get('START_DATE')
+           build_time = os.environ.get('BUILD_TIME')
+           branch = os.environ.get('BRANCH')
+           lto_config = os.environ.get('LTO_CONFIG')
+           clang_toolchain = os.environ.get('CLANG_TOOLCHAIN')
+           build_type = os.environ.get('BUILD_TYPE')
+           zip_name = os.environ.get('ZIP_NAME')
+           
+           message = f"""<b>✅ {kernel_name} Build Complete!</b> 
+           <b>🔲 Yml:</b> All in One  
+           <b>📅 Date:</b> {start_date}
+           <b>🕔 Build Duration:</b> {build_time}
+           <b>📱 Device Codename:</b> munch
+           <b>📑 Branch:</b> {branch}
+           <b>🔧 Lto:</b> {lto_config}
+           <b>⚙️ Toolchain:</b> {clang_toolchain}
+           <b>📂 Build Type:</b> {build_type}"""
+           
+           # Send the message with file
+           result = send_telegram_message(bot_token, chat_id, message, f"{zip_name}.zip")
+           print(result)
+           
+           # Check if message was sent successfully
+           if not result.get('ok'):
+               print(f"Error sending Telegram message: {result}")
+               exit(1)
+           EOF
+           
+           python send_telegram.py
        
        - name: Upload Flashable Kernel Zip
          uses: actions/upload-artifact@v4
@@ -525,41 +575,41 @@ jobs:
      runs-on: ubuntu-latest
  
      steps:
-       - name: Download Kernel Build Original
-         uses: actions/download-artifact@v4
-         with:
+      - name: Download Kernel Build Original
+        uses: actions/download-artifact@v4
+        with:
            name: kernel-2-original
            path: kernel-2-original
- 
-       - name: Download Kernel Build Modified
-         uses: actions/download-artifact@v4
-         with:
+
+      - name: Download Kernel Build Modified
+        uses: actions/download-artifact@v4
+        with:
            name: kernel-2-modified
            path: kernel-2-modified
            
-       - name: Download build metrics
-         uses: actions/download-artifact@v4
-         with:
+      - name: Download build metrics
+        uses: actions/download-artifact@v4
+        with:
            name: build-metrics-2
            path: build-metrics
- 
-       - name: Clone AnyKernel3
-         run: git clone --recursive --depth=1 ${{ github.event.inputs.ANYKERNEL_URL }} -b ${{ github.event.inputs.ANYKERNEL_BRANCH }} AnyKernel3-2
- 
-       - name: Move Kernel Files to AnyKernel3
-         run: |
+
+      - name: Clone AnyKernel3
+        run: git clone --recursive --depth=1 ${{ github.event.inputs.ANYKERNEL_URL }} -b ${{ github.event.inputs.ANYKERNEL_BRANCH }} AnyKernel3-2
+
+      - name: Move Kernel Files to AnyKernel3
+        run: |
            mv kernel-2-original/* AnyKernel3-2/
            mv kernel-2-modified/* AnyKernel3-2/
           
-       - name: Define ZIP Name
-         run: |
+      - name: Define ZIP Name
+        run: |
            # Use Philippine timezone (UTC+8) for date with month and day in numbers
            COMPILED_DATE=$(TZ=Asia/Manila date +%m%d)
            LTO_CONFIG=$(cat build-metrics/lto-config-2 | head -n 1 | cut -d' ' -f2)
            CLANG_TOOLCHAIN=$(cat build-metrics/lto-config-2 | tail -n 1 | cut -d' ' -f2)
            
            BASE_NAME="FusionX-NEXT"
-           
+
            # Determine build type based on branch combinations
            if [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "fx-base" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "fx-base" ]]; then
              BUILD_TYPE="Personal Build"
@@ -571,7 +621,7 @@ jobs:
              BUILD_TYPE="Debug Build"
            fi
            
-           ZIP_NAME="${BASE_NAME}-${{ github.event.inputs.VERSION }}-${COMPILED_DATE}"
+           ZIP_NAME="[${BASE_NAME}]-${{ github.event.inputs.VERSION }}-${COMPILED_DATE}"
            KERNEL_NAME="${BASE_NAME}"
            
            echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
@@ -580,14 +630,14 @@ jobs:
            echo "CLANG_TOOLCHAIN=$CLANG_TOOLCHAIN" >> $GITHUB_ENV
            echo "BUILD_TYPE=$BUILD_TYPE" >> $GITHUB_ENV
            
-       - name: Package Kernel
-         run: |
+      - name: Package Kernel
+        run: |
            cd AnyKernel3-2
            zip -r9 ../${{ env.ZIP_NAME }}.zip *
 
-       - name: Read build metrics
-         id: read_metrics
-         run: |
+      - name: Read build metrics
+        id: read_metrics
+        run: |
            start_date=$(cat build-metrics/start-date-2)
            duration=$(cat build-metrics/duration-2)
            echo "start_date=$start_date" >> $GITHUB_OUTPUT
@@ -598,27 +648,75 @@ jobs:
            seconds=$((duration % 60))
            echo "build_time=${minutes}m ${seconds}s" >> $GITHUB_OUTPUT
        
-       - name: Upload Flashable Kernel Zip to Telegram
-         uses: appleboy/telegram-action@master
-         with:
-           to: ${{ secrets.TELEGRAM_CHAT_ID }}
-           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-           document: ${{ env.ZIP_NAME }}.zip
-           format: html
-           message: |
-            <b>✅ ${{ env.KERNEL_NAME }} Build Complete!</b> 
-            <b>🔻Yml:</b> All in One          
-            <b>📅 Date:</b> ${{ steps.read_metrics.outputs.start_date }}
-            <b>🕔 Build Duration:</b> ${{ steps.read_metrics.outputs.build_time }}
-            <b>📱 Device Codename:</b> munch
-            <b>📑 Branch:</b> ${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}
-            <b>🔧 Lto:</b> ${{ env.LTO_CONFIG }}
-            <b>⚙️ Toolchain:</b> ${{ env.CLANG_TOOLCHAIN }}
-            <b>📂 Build Type:</b> ${{ env.BUILD_TYPE }} Release
-          
+      - name: Install Python dependencies
+        run: pip install requests python-telegram-bot
        
-       - name: Upload Flashable Kernel Zip
-         uses: actions/upload-artifact@v4
-         with:
+      - name: Send Telegram message
+        env:
+           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+           START_DATE: ${{ steps.read_metrics.outputs.start_date }}
+           BUILD_TIME: ${{ steps.read_metrics.outputs.build_time }}
+           BRANCH: ${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}
+        run: |
+           cat > send_telegram.py << 'EOF'
+           import os
+           import requests
+           
+           def send_telegram_message(bot_token, chat_id, message, file_path):
+               url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
+               
+               message_html = message
+               
+               files = {
+                   'document': open(file_path, 'rb')
+               }
+               
+               data = {
+                   'chat_id': chat_id,
+                   'caption': message_html,
+                   'parse_mode': 'HTML'
+               }
+               
+               response = requests.post(url, data=data, files=files)
+               return response.json()
+           
+           # Get environment variables
+           bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+           chat_id = os.environ.get('TELEGRAM_CHAT_ID')
+           kernel_name = os.environ.get('KERNEL_NAME')
+           start_date = os.environ.get('START_DATE')
+           build_time = os.environ.get('BUILD_TIME')
+           branch = os.environ.get('BRANCH')
+           lto_config = os.environ.get('LTO_CONFIG')
+           clang_toolchain = os.environ.get('CLANG_TOOLCHAIN')
+           build_type = os.environ.get('BUILD_TYPE')
+           zip_name = os.environ.get('ZIP_NAME')
+           
+           message = f"""<b>✅ {kernel_name} Build Complete!</b> 
+           <b>🔲 Yml:</b> All in One  
+           <b>📅 Date:</b> {start_date}
+           <b>🕔 Build Duration:</b> {build_time}
+           <b>📱 Device Codename:</b> munch
+           <b>📑 Branch:</b> {branch}
+           <b>🔧 Lto:</b> {lto_config}
+           <b>⚙️ Toolchain:</b> {clang_toolchain}
+           <b>📂 Build Type:</b> {build_type}"""
+           
+           # Send the message with file
+           result = send_telegram_message(bot_token, chat_id, message, f"{zip_name}.zip")
+           print(result)
+           
+           # Check if message was sent successfully
+           if not result.get('ok'):
+               print(f"Error sending Telegram message: {result}")
+               exit(1)
+           EOF
+           
+           python send_telegram.py
+       
+      - name: Upload Flashable Kernel Zip
+        uses: actions/upload-artifact@v4
+        with:
            name: ${{ env.ZIP_NAME }}
            path: ${{ env.ZIP_NAME }}.zip
