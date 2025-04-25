@@ -9,21 +9,21 @@ on:
          default: 'https://github.com/SenseiiX/fusionX_sm8250'
          required: true
        KERNEL_TREE_BRANCH_1:
-         description: 'Kernel Tree Branch 1'
+         description: 'Kernel Tree Branch (SUSFS)'
          default: 'exp-sus'
          required: false
          type: choice
          options:
-           - munch-sus
+           - stable-sus
            - exp-sus
            - fx-base
        KERNEL_TREE_BRANCH_2:
-         description: 'Kernel Tree Branch 2'
+         description: 'Kernel Tree Branch (NEXT)'
          default: 'exp-nxt'
          required: false
          type: choice
          options:
-           - munch-nxt
+           - stable-nxt
            - exp-nxt
            - fx-base
        VERSION:
@@ -80,7 +80,7 @@ jobs:
      if: needs.determine_build_targets.outputs.build_kernel_1 == 'true'
      strategy:
        matrix:
-         type: [original, modified]
+         type: [original, los, modified]
      runs-on: ubuntu-latest
      env:
        UPLOAD_TO_RELEASE: false
@@ -125,8 +125,27 @@ jobs:
            echo "KERNEL_TREE_BRANCH=${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" >> $GITHUB_ENV
            echo "CLANG_TOOLCHAIN=${{ github.event.inputs.CLANG_TOOLCHAIN }}" >> $GITHUB_ENV
            
+       - name: Extract Repository Owner and Name
+         id: repo-info
+         run: |
+           # Extract owner/repo format from the full URL
+           if [[ "${{ github.event.inputs.KERNEL_TREE_1 }}" =~ github.com/([^/]+)/([^/]+) ]]; then
+             REPO_OWNER="${BASH_REMATCH[1]}"
+             REPO_NAME="${BASH_REMATCH[2]}"
+             echo "repository=${REPO_OWNER}/${REPO_NAME}" >> $GITHUB_OUTPUT
+             echo "Using repository: ${REPO_OWNER}/${REPO_NAME}"
+           else
+             echo "::error::Invalid GitHub repository URL format"
+             exit 1
+           fi
+           
        - name: Checkout Kernel
-         run: git clone --depth=1 $KERNEL_TREE -b $KERNEL_TREE_BRANCH kernel_tree
+         uses: actions/checkout@v4
+         with:
+           repository: ${{ steps.repo-info.outputs.repository }}
+           ref: ${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}
+           path: kernel_tree
+           fetch-depth: 1
  
        - name: Kernel Version
          run: |
@@ -151,8 +170,14 @@ jobs:
            
        - name: Apply Patches
          run: |
-           cd kernel_tree
-           bash nextpatch.sh
+          cd kernel_tree
+          bash nextpatch.sh
+          
+          # Apply LOS-IR patch only for the 'los' build type
+          if [[ "${{ matrix.type }}" == "los" ]]; then
+            echo "Applying LOS-IR patch for the LOS build..."
+            patch -p1 -f < "0001-LOS-IR.patch"
+          fi
            
        - name: Apply Modifications (if modified build)
          if: matrix.type == 'modified'
@@ -190,18 +215,33 @@ jobs:
              mv out/arch/arm64/boot/dtbo.img ../munch-aosp-dtbo.img
              mv out/arch/arm64/boot/dtb ../munch-normal-dtb
              cp out/arch/arm64/boot/Image.gz ../Image.gz
+           elif [[ "${{ matrix.type }}" == "los" ]]; then
+             mv out/arch/arm64/boot/dtbo.img ../munch-los-dtbo.img
            else
              mv out/arch/arm64/boot/dtbo.img ../munch-miui-dtbo.img
              mv out/arch/arm64/boot/dtb ../munch-effcpu-dtb
            fi
 
-       - name: Verify modified build artifacts
-         if: matrix.type == 'modified'
+       - name: Verify build artifacts
          run: |
-           ls -la munch-miui-dtbo.img munch-effcpu-dtb
-           if [[ ! -s munch-miui-dtbo.img || ! -s munch-effcpu-dtb ]]; then
-             echo "Error: One or more modified build artifacts is missing or empty"
-             exit 1
+           if [[ "${{ matrix.type }}" == "original" ]]; then
+             ls -la munch-aosp-dtbo.img munch-normal-dtb Image.gz
+             if [[ ! -s munch-aosp-dtbo.img || ! -s munch-normal-dtb || ! -s Image.gz ]]; then
+               echo "Error: One or more original build artifacts is missing or empty"
+               exit 1
+             fi
+           elif [[ "${{ matrix.type }}" == "los" ]]; then
+             ls -la munch-los-dtbo.img
+             if [[ ! -s munch-los-dtbo.img ]]; then
+               echo "Error: LOS DTBO is missing or empty"
+               exit 1
+             fi
+           else
+             ls -la munch-miui-dtbo.img munch-effcpu-dtb
+             if [[ ! -s munch-miui-dtbo.img || ! -s munch-effcpu-dtb ]]; then
+               echo "Error: One or more modified build artifacts is missing or empty"
+               exit 1
+             fi
            fi
            
        - name: Record build end time
@@ -219,6 +259,7 @@ jobs:
            name: kernel-1-${{ matrix.type }}
            path: |
              munch-aosp-dtbo.img
+             munch-los-dtbo.img
              munch-miui-dtbo.img
              munch-normal-dtb
              munch-effcpu-dtb
@@ -251,7 +292,7 @@ jobs:
      if: needs.determine_build_targets.outputs.build_kernel_2 == 'true'
      strategy:
        matrix:
-         type: [original, modified]
+         type: [original, los, modified]
      runs-on: ubuntu-latest
      env:
        UPLOAD_TO_RELEASE: false
@@ -296,8 +337,27 @@ jobs:
            echo "KERNEL_TREE_BRANCH=${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" >> $GITHUB_ENV
            echo "CLANG_TOOLCHAIN=${{ github.event.inputs.CLANG_TOOLCHAIN }}" >> $GITHUB_ENV
            
+       - name: Extract Repository Owner and Name
+         id: repo-info
+         run: |
+           # Extract owner/repo format from the full URL
+           if [[ "${{ github.event.inputs.KERNEL_TREE_1 }}" =~ github.com/([^/]+)/([^/]+) ]]; then
+             REPO_OWNER="${BASH_REMATCH[1]}"
+             REPO_NAME="${BASH_REMATCH[2]}"
+             echo "repository=${REPO_OWNER}/${REPO_NAME}" >> $GITHUB_OUTPUT
+             echo "Using repository: ${REPO_OWNER}/${REPO_NAME}"
+           else
+             echo "::error::Invalid GitHub repository URL format"
+             exit 1
+           fi
+           
        - name: Checkout Kernel
-         run: git clone --depth=1 $KERNEL_TREE -b $KERNEL_TREE_BRANCH kernel_tree
+         uses: actions/checkout@v4
+         with:
+           repository: ${{ steps.repo-info.outputs.repository }}
+           ref: ${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}
+           path: kernel_tree
+           fetch-depth: 1
  
        - name: Kernel Version
          run: |
@@ -322,8 +382,14 @@ jobs:
            
        - name: Apply Patches
          run: |
-           cd kernel_tree
-           bash nextpatch.sh
+          cd kernel_tree
+          bash nextpatch.sh
+          
+          # Apply LOS-IR patch only for the 'los' build type
+          if [[ "${{ matrix.type }}" == "los" ]]; then
+            echo "Applying LOS-IR patch for the LOS build..."
+            patch -p1 -f < "0001-LOS-IR.patch"
+          fi
            
        - name: Apply Modifications (if modified build)
          if: matrix.type == 'modified'
@@ -361,18 +427,33 @@ jobs:
              mv out/arch/arm64/boot/dtbo.img ../munch-aosp-dtbo.img
              mv out/arch/arm64/boot/dtb ../munch-normal-dtb
              cp out/arch/arm64/boot/Image.gz ../Image.gz
+           elif [[ "${{ matrix.type }}" == "los" ]]; then
+             mv out/arch/arm64/boot/dtbo.img ../munch-los-dtbo.img
            else
              mv out/arch/arm64/boot/dtbo.img ../munch-miui-dtbo.img
              mv out/arch/arm64/boot/dtb ../munch-effcpu-dtb
            fi
 
-       - name: Verify modified build artifacts
-         if: matrix.type == 'modified'
+       - name: Verify build artifacts
          run: |
-           ls -la munch-miui-dtbo.img munch-effcpu-dtb
-           if [[ ! -s munch-miui-dtbo.img || ! -s munch-effcpu-dtb ]]; then
-             echo "Error: One or more modified build artifacts is missing or empty"
-             exit 1
+           if [[ "${{ matrix.type }}" == "original" ]]; then
+             ls -la munch-aosp-dtbo.img munch-normal-dtb Image.gz
+             if [[ ! -s munch-aosp-dtbo.img || ! -s munch-normal-dtb || ! -s Image.gz ]]; then
+               echo "Error: One or more original build artifacts is missing or empty"
+               exit 1
+             fi
+           elif [[ "${{ matrix.type }}" == "los" ]]; then
+             ls -la munch-los-dtbo.img
+             if [[ ! -s munch-los-dtbo.img ]]; then
+               echo "Error: LOS DTBO is missing or empty"
+               exit 1
+             fi
+           else
+             ls -la munch-miui-dtbo.img munch-effcpu-dtb
+             if [[ ! -s munch-miui-dtbo.img || ! -s munch-effcpu-dtb ]]; then
+               echo "Error: One or more modified build artifacts is missing or empty"
+               exit 1
+             fi
            fi
            
        - name: Record build end time
@@ -390,6 +471,7 @@ jobs:
            name: kernel-2-${{ matrix.type }}
            path: |
              munch-aosp-dtbo.img
+             munch-los-dtbo.img
              munch-miui-dtbo.img
              munch-normal-dtb
              munch-effcpu-dtb
@@ -428,7 +510,13 @@ jobs:
          with:
            name: kernel-1-original
            path: kernel-1-original
- 
+     
+       - name: Download Kernel Build LOS
+         uses: actions/download-artifact@v4
+         with:
+           name: kernel-1-los
+           path: kernel-1-los
+     
        - name: Download Kernel Build Modified
          uses: actions/download-artifact@v4
          with:
@@ -440,13 +528,14 @@ jobs:
          with:
            name: build-metrics-1
            path: build-metrics
- 
+     
        - name: Clone AnyKernel3
          run: git clone --recursive --depth=1 ${{ github.event.inputs.ANYKERNEL_URL }} -b ${{ github.event.inputs.ANYKERNEL_BRANCH }} AnyKernel3-1
- 
+     
        - name: Move Kernel Files to AnyKernel3
          run: |
            mv kernel-1-original/* AnyKernel3-1/
+           mv kernel-1-los/* AnyKernel3-1/
            mv kernel-1-modified/* AnyKernel3-1/
           
        - name: Define ZIP Name
@@ -463,7 +552,7 @@ jobs:
              BUILD_TYPE="Personal Build"
            elif [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "exp-sus" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "exp-nxt" ]]; then
              BUILD_TYPE="Beta Test"
-           elif [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "munch-sus" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "munch-nxt" ]]; then
+           elif [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "stable-sus" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "stable-nxt" ]]; then
              BUILD_TYPE="Stable Build"
            else
              BUILD_TYPE="Debug Build"
@@ -575,148 +664,155 @@ jobs:
      runs-on: ubuntu-latest
  
      steps:
-      - name: Download Kernel Build Original
-        uses: actions/download-artifact@v4
-        with:
+       - name: Download Kernel Build Original
+         uses: actions/download-artifact@v4
+         with:
            name: kernel-2-original
            path: kernel-2-original
-
-      - name: Download Kernel Build Modified
-        uses: actions/download-artifact@v4
-        with:
+     
+       - name: Download Kernel Build LOS
+         uses: actions/download-artifact@v4
+         with:
+           name: kernel-2-los
+           path: kernel-2-los
+     
+       - name: Download Kernel Build Modified
+         uses: actions/download-artifact@v4
+         with:
            name: kernel-2-modified
            path: kernel-2-modified
            
-      - name: Download build metrics
-        uses: actions/download-artifact@v4
-        with:
+       - name: Download build metrics
+         uses: actions/download-artifact@v4
+         with:
            name: build-metrics-2
            path: build-metrics
-
-      - name: Clone AnyKernel3
-        run: git clone --recursive --depth=1 ${{ github.event.inputs.ANYKERNEL_URL }} -b ${{ github.event.inputs.ANYKERNEL_BRANCH }} AnyKernel3-2
-
-      - name: Move Kernel Files to AnyKernel3
-        run: |
+     
+       - name: Clone AnyKernel3
+         run: git clone --recursive --depth=1 ${{ github.event.inputs.ANYKERNEL_URL }} -b ${{ github.event.inputs.ANYKERNEL_BRANCH }} AnyKernel3-2
+     
+       - name: Move Kernel Files to AnyKernel3
+         run: |
            mv kernel-2-original/* AnyKernel3-2/
+           mv kernel-2-los/* AnyKernel3-2/
            mv kernel-2-modified/* AnyKernel3-2/
           
-      - name: Define ZIP Name
-        run: |
-           # Use Philippine timezone (UTC+8) for date with month and day in numbers
-           COMPILED_DATE=$(TZ=Asia/Manila date +%m%d)
-           LTO_CONFIG=$(cat build-metrics/lto-config-2 | head -n 1 | cut -d' ' -f2)
-           CLANG_TOOLCHAIN=$(cat build-metrics/lto-config-2 | tail -n 1 | cut -d' ' -f2)
-           
-           BASE_NAME="FusionX-NEXT"
-
-           # Determine build type based on branch combinations
-           if [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "fx-base" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "fx-base" ]]; then
-             BUILD_TYPE="Personal Build"
-           elif [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "exp-sus" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "exp-nxt" ]]; then
-             BUILD_TYPE="Beta Test"
-           elif [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "munch-sus" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "munch-nxt" ]]; then
-             BUILD_TYPE="Stable Build"
-           else
-             BUILD_TYPE="Debug Build"
-           fi
-           
-           ZIP_NAME="[${BASE_NAME}]-${{ github.event.inputs.VERSION }}-${COMPILED_DATE}"
-           KERNEL_NAME="${BASE_NAME}"
-           
-           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
-           echo "KERNEL_NAME=$KERNEL_NAME" >> $GITHUB_ENV
-           echo "LTO_CONFIG=$LTO_CONFIG" >> $GITHUB_ENV
-           echo "CLANG_TOOLCHAIN=$CLANG_TOOLCHAIN" >> $GITHUB_ENV
-           echo "BUILD_TYPE=$BUILD_TYPE" >> $GITHUB_ENV
-           
-      - name: Package Kernel
-        run: |
-           cd AnyKernel3-2
-           zip -r9 ../${{ env.ZIP_NAME }}.zip *
-
-      - name: Read build metrics
-        id: read_metrics
-        run: |
-           start_date=$(cat build-metrics/start-date-2)
-           duration=$(cat build-metrics/duration-2)
-           echo "start_date=$start_date" >> $GITHUB_OUTPUT
-           echo "duration=$duration" >> $GITHUB_OUTPUT
-           
-           # Convert seconds to minutes and seconds format
-           minutes=$((duration / 60))
-           seconds=$((duration % 60))
-           echo "build_time=${minutes}m ${seconds}s" >> $GITHUB_OUTPUT
-       
-      - name: Install Python dependencies
-        run: pip install requests python-telegram-bot
-       
-      - name: Send Telegram message
-        env:
-           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-           START_DATE: ${{ steps.read_metrics.outputs.start_date }}
-           BUILD_TIME: ${{ steps.read_metrics.outputs.build_time }}
-           BRANCH: ${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}
-        run: |
-           cat > send_telegram.py << 'EOF'
-           import os
-           import requests
-           
-           def send_telegram_message(bot_token, chat_id, message, file_path):
-               url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
-               
-               message_html = message
-               
-               files = {
-                   'document': open(file_path, 'rb')
-               }
-               
-               data = {
-                   'chat_id': chat_id,
-                   'caption': message_html,
-                   'parse_mode': 'HTML'
-               }
-               
-               response = requests.post(url, data=data, files=files)
-               return response.json()
-           
-           # Get environment variables
-           bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
-           chat_id = os.environ.get('TELEGRAM_CHAT_ID')
-           kernel_name = os.environ.get('KERNEL_NAME')
-           start_date = os.environ.get('START_DATE')
-           build_time = os.environ.get('BUILD_TIME')
-           branch = os.environ.get('BRANCH')
-           lto_config = os.environ.get('LTO_CONFIG')
-           clang_toolchain = os.environ.get('CLANG_TOOLCHAIN')
-           build_type = os.environ.get('BUILD_TYPE')
-           zip_name = os.environ.get('ZIP_NAME')
-           
-           message = f"""<b>✅ {kernel_name} Build Complete!</b> 
-           <b>🔲 Yml:</b> All in One  
-           <b>📅 Date:</b> {start_date}
-           <b>🕔 Build Duration:</b> {build_time}
-           <b>📱 Device Codename:</b> munch
-           <b>📑 Branch:</b> {branch}
-           <b>🔧 Lto:</b> {lto_config}
-           <b>⚙️ Toolchain:</b> {clang_toolchain}
-           <b>📂 Build Type:</b> {build_type}"""
-           
-           # Send the message with file
-           result = send_telegram_message(bot_token, chat_id, message, f"{zip_name}.zip")
-           print(result)
-           
-           # Check if message was sent successfully
-           if not result.get('ok'):
-               print(f"Error sending Telegram message: {result}")
-               exit(1)
-           EOF
-           
-           python send_telegram.py
-       
-      - name: Upload Flashable Kernel Zip
-        uses: actions/upload-artifact@v4
-        with:
-           name: ${{ env.ZIP_NAME }}
-           path: ${{ env.ZIP_NAME }}.zip
+       - name: Define ZIP Name
+         run: |
+            # Use Philippine timezone (UTC+8) for date with month and day in numbers
+            COMPILED_DATE=$(TZ=Asia/Manila date +%m%d)
+            LTO_CONFIG=$(cat build-metrics/lto-config-2 | head -n 1 | cut -d' ' -f2)
+            CLANG_TOOLCHAIN=$(cat build-metrics/lto-config-2 | tail -n 1 | cut -d' ' -f2)
+            
+            BASE_NAME="FusionX-NEXT"
+ 
+            # Determine build type based on branch combinations
+            if [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "fx-base" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "fx-base" ]]; then
+              BUILD_TYPE="Personal Build"
+            elif [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "exp-sus" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "exp-nxt" ]]; then
+              BUILD_TYPE="Beta Test"
+            elif [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "stable-sus" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "stable-nxt" ]]; then
+              BUILD_TYPE="Stable Build"
+            else
+              BUILD_TYPE="Debug Build"
+            fi
+            
+            ZIP_NAME="[${BASE_NAME}]-${{ github.event.inputs.VERSION }}-${COMPILED_DATE}"
+            KERNEL_NAME="${BASE_NAME}"
+            
+            echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+            echo "KERNEL_NAME=$KERNEL_NAME" >> $GITHUB_ENV
+            echo "LTO_CONFIG=$LTO_CONFIG" >> $GITHUB_ENV
+            echo "CLANG_TOOLCHAIN=$CLANG_TOOLCHAIN" >> $GITHUB_ENV
+            echo "BUILD_TYPE=$BUILD_TYPE" >> $GITHUB_ENV
+            
+       - name: Package Kernel
+         run: |
+            cd AnyKernel3-2
+            zip -r9 ../${{ env.ZIP_NAME }}.zip *
+ 
+       - name: Read build metrics
+         id: read_metrics
+         run: |
+            start_date=$(cat build-metrics/start-date-2)
+            duration=$(cat build-metrics/duration-2)
+            echo "start_date=$start_date" >> $GITHUB_OUTPUT
+            echo "duration=$duration" >> $GITHUB_OUTPUT
+            
+            # Convert seconds to minutes and seconds format
+            minutes=$((duration / 60))
+            seconds=$((duration % 60))
+            echo "build_time=${minutes}m ${seconds}s" >> $GITHUB_OUTPUT
+        
+       - name: Install Python dependencies
+         run: pip install requests python-telegram-bot
+        
+       - name: Send Telegram message
+         env:
+            TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+            TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+            START_DATE: ${{ steps.read_metrics.outputs.start_date }}
+            BUILD_TIME: ${{ steps.read_metrics.outputs.build_time }}
+            BRANCH: ${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}
+         run: |
+            cat > send_telegram.py << 'EOF'
+            import os
+            import requests
+            
+            def send_telegram_message(bot_token, chat_id, message, file_path):
+                url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
+                
+                message_html = message
+                
+                files = {
+                    'document': open(file_path, 'rb')
+                }
+                
+                data = {
+                    'chat_id': chat_id,
+                    'caption': message_html,
+                    'parse_mode': 'HTML'
+                }
+                
+                response = requests.post(url, data=data, files=files)
+                return response.json()
+            
+            # Get environment variables
+            bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+            chat_id = os.environ.get('TELEGRAM_CHAT_ID')
+            kernel_name = os.environ.get('KERNEL_NAME')
+            start_date = os.environ.get('START_DATE')
+            build_time = os.environ.get('BUILD_TIME')
+            branch = os.environ.get('BRANCH')
+            lto_config = os.environ.get('LTO_CONFIG')
+            clang_toolchain = os.environ.get('CLANG_TOOLCHAIN')
+            build_type = os.environ.get('BUILD_TYPE')
+            zip_name = os.environ.get('ZIP_NAME')
+            
+            message = f"""<b>✅ {kernel_name} Build Complete!</b> 
+            <b>🔲 Yml:</b> All in One  
+            <b>📅 Date:</b> {start_date}
+            <b>🕔 Build Duration:</b> {build_time}
+            <b>📱 Device Codename:</b> munch
+            <b>📑 Branch:</b> {branch}
+            <b>🔧 Lto:</b> {lto_config}
+            <b>⚙️ Toolchain:</b> {clang_toolchain}
+            <b>📂 Build Type:</b> {build_type}"""
+            
+            # Send the message with file
+            result = send_telegram_message(bot_token, chat_id, message, f"{zip_name}.zip")
+            print(result)
+            
+            # Check if message was sent successfully
+            if not result.get('ok'):
+                print(f"Error sending Telegram message: {result}")
+                exit(1)
+            EOF
+            
+            python send_telegram.py
+        
+       - name: Upload Flashable Kernel Zip
+         uses: actions/upload-artifact@v4
+         with:
+            name: ${{ env.ZIP_NAME }}
+            path: ${{ env.ZIP_NAME }}.zip
