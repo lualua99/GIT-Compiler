@@ -231,7 +231,7 @@ jobs:
                exit 1
              fi
            elif [[ "${{ matrix.type }}" == "los" ]]; then
-             ls -la munch-los-dtbo.img
+             ls -la munch-aosp-ir-dtbo.img
              if [[ ! -s munch-aosp-ir-dtbo.img ]]; then
                echo "Error: LOS DTBO is missing or empty"
                exit 1
@@ -443,7 +443,7 @@ jobs:
                exit 1
              fi
            elif [[ "${{ matrix.type }}" == "los" ]]; then
-             ls -la munch-los-dtbo.img
+             ls -la munch-aosp-ir-dtbo.img
              if [[ ! -s munch-aosp-ir-dtbo.img ]]; then
                echo "Error: LOS DTBO is missing or empty"
                exit 1
