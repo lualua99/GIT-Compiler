@@ -259,7 +259,7 @@ jobs:
            name: kernel-1-${{ matrix.type }}
            path: |
              munch-aosp-dtbo.img
-             munch-los-dtbo.img
+             munch-aosp-ir-dtbo.img
              munch-miui-dtbo.img
              munch-normal-dtb
              munch-effcpu-dtb
@@ -471,7 +471,7 @@ jobs:
            name: kernel-2-${{ matrix.type }}
            path: |
              munch-aosp-dtbo.img
-             munch-los-dtbo.img
+             munch-aosp-ir-dtbo.img
              munch-miui-dtbo.img
              munch-normal-dtb
              munch-effcpu-dtb
