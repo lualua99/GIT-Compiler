@@ -216,7 +216,7 @@ jobs:
              mv out/arch/arm64/boot/dtb ../munch-normal-dtb
              cp out/arch/arm64/boot/Image.gz ../Image.gz
            elif [[ "${{ matrix.type }}" == "los" ]]; then
-             mv out/arch/arm64/boot/dtbo.img ../munch-los-dtbo.img
+             mv out/arch/arm64/boot/dtbo.img ../munch-aosp-ir-dtbo.img
            else
              mv out/arch/arm64/boot/dtbo.img ../munch-miui-dtbo.img
              mv out/arch/arm64/boot/dtb ../munch-effcpu-dtb
@@ -232,7 +232,7 @@ jobs:
              fi
            elif [[ "${{ matrix.type }}" == "los" ]]; then
              ls -la munch-los-dtbo.img
-             if [[ ! -s munch-los-dtbo.img ]]; then
+             if [[ ! -s munch-aosp-ir-dtbo.img ]]; then
                echo "Error: LOS DTBO is missing or empty"
                exit 1
              fi
@@ -428,7 +428,7 @@ jobs:
              mv out/arch/arm64/boot/dtb ../munch-normal-dtb
              cp out/arch/arm64/boot/Image.gz ../Image.gz
            elif [[ "${{ matrix.type }}" == "los" ]]; then
-             mv out/arch/arm64/boot/dtbo.img ../munch-los-dtbo.img
+             mv out/arch/arm64/boot/dtbo.img ../munch-aosp-ir-dtbo.img
            else
              mv out/arch/arm64/boot/dtbo.img ../munch-miui-dtbo.img
              mv out/arch/arm64/boot/dtb ../munch-effcpu-dtb
@@ -444,7 +444,7 @@ jobs:
              fi
            elif [[ "${{ matrix.type }}" == "los" ]]; then
              ls -la munch-los-dtbo.img
-             if [[ ! -s munch-los-dtbo.img ]]; then
+             if [[ ! -s munch-aosp-ir-dtbo.img ]]; then
                echo "Error: LOS DTBO is missing or empty"
                exit 1
              fi
