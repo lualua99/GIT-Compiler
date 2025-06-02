@@ -36,7 +36,7 @@ on:
          required: false
        ANYKERNEL_BRANCH:
          description: 'AnyKernel Branch'
-         default: 'effcpu'
+         default: 'fusionX'
          required: true
        CUSTOM_SED:
          description: 'Custom Kernel Version'
@@ -80,7 +80,7 @@ jobs:
      if: needs.determine_build_targets.outputs.build_kernel_1 == 'true'
      strategy:
        matrix:
-         type: [original, los, modified]
+         type: [original, los, modified, swift]
      runs-on: ubuntu-latest
      env:
        UPLOAD_TO_RELEASE: false
@@ -159,7 +159,7 @@ jobs:
          run: |
            cd kernel_tree
            echo "Changing LTO configuration from FULL to THIN..."
-           sed -i '
+           sed -i -e '
            /CONFIG_ARCH_SUPPORTS_LTO_CLANG=y/c\CONFIG_ARCH_SUPPORTS_LTO_CLANG=y
            /# CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN is not set/c\CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN=y
            /CONFIG_HAS_LTO_CLANG=y/c\CONFIG_HAS_LTO_CLANG=y
@@ -178,17 +178,25 @@ jobs:
             echo "Applying LOS-IR patch for the LOS build..."
             patch -p1 -f < "0001-LOS-IR.patch"
           fi
+
+       - name: Apply Modifications (if swift build)
+         if: matrix.type == 'swift'
+         run: |
+           cd kernel_tree
+           sed -i -e '/<2841600>,/c\<2841600>;' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
+           sed -i -e '/<3187200>;/d' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
            
        - name: Apply Modifications (if modified build)
          if: matrix.type == 'modified'
          run: |
            cd kernel_tree
-           sed -i '/<2553600>,/c\<2553600>;' arch/arm64/boot/dts/vendor/qcom/kona.dtsi 
-           sed -i '/<2649600>,/c\//<2649600>,' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
-           sed -i '/<2745600>,/c\//<2745600>,' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
-           sed -i '/<2841600>;/c\//<2841600>;' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
-           sed -i 's/qcom,mdss-pan-physical-width-dimension = <70>;$/qcom,mdss-pan-physical-width-dimension = <695>;/' arch/arm64/boot/dts/vendor/qcom/dsi-panel-l11r-38-08-0a-dsc-cmd.dtsi
-           sed -i 's/qcom,mdss-pan-physical-height-dimension = <155>;$/qcom,mdss-pan-physical-height-dimension = <1546>;/' arch/arm64/boot/dts/vendor/qcom/dsi-panel-l11r-38-08-0a-dsc-cmd.dtsi
+           sed -i -e '/<2553600>,/c\<2553600>;' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
+           sed -i -e '/<2649600>,/c\//<2649600>,' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
+           sed -i -e '/<2745600>,/c\//<2745600>,' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
+           sed -i -e '/<2841600>,/c\//<2841600>,' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
+           sed -i -e '/<3187200>;/c\//<3187200>;' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
+           sed -i -e 's/qcom,mdss-pan-physical-width-dimension = <70>;$/qcom,mdss-pan-physical-width-dimension = <695>;/' arch/arm64/boot/dts/vendor/qcom/dsi-panel-l11r-38-08-0a-dsc-cmd.dtsi
+           sed -i -e 's/qcom,mdss-pan-physical-height-dimension = <155>;$/qcom,mdss-pan-physical-height-dimension = <1546>;/' arch/arm64/boot/dts/vendor/qcom/dsi-panel-l11r-38-08-0a-dsc-cmd.dtsi
        
        - name: Record build start time
          id: build_start
@@ -206,8 +214,8 @@ jobs:
            fi
            export ARCH=arm64
            export SUBARCH=ARM64
-           export KBUILD_BUILD_USER="senseix"
-           export KBUILD_BUILD_HOST="ubuntu"
+           export KBUILD_BUILD_USER="Senseix"
+           export KBUILD_BUILD_HOST="Ubuntu"
            cd kernel_tree
            make O=out vendor/munch_defconfig
            make O=out CC=clang -j$(nproc --all) CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1
@@ -217,6 +225,8 @@ jobs:
              cp out/arch/arm64/boot/Image.gz ../Image.gz
            elif [[ "${{ matrix.type }}" == "los" ]]; then
              mv out/arch/arm64/boot/dtbo.img ../munch-aosp-ir-dtbo.img
+           elif [[ "${{ matrix.type }}" == "swift" ]]; then
+             mv out/arch/arm64/boot/dtb ../munch-slight-uc-dtb
            else
              mv out/arch/arm64/boot/dtbo.img ../munch-miui-dtbo.img
              mv out/arch/arm64/boot/dtb ../munch-effcpu-dtb
@@ -234,6 +244,12 @@ jobs:
              ls -la munch-aosp-ir-dtbo.img
              if [[ ! -s munch-aosp-ir-dtbo.img ]]; then
                echo "Error: LOS DTBO is missing or empty"
+               exit 1
+             fi
+           elif [[ "${{ matrix.type }}" == "swift" ]]; then
+             ls -la munch-slight-uc-dtb
+             if [[ ! -s munch-slight-uc-dtb ]]; then
+               echo "Error: Swift DTB is missing or empty"
                exit 1
              fi
            else
@@ -262,6 +278,7 @@ jobs:
              munch-aosp-ir-dtbo.img
              munch-miui-dtbo.img
              munch-normal-dtb
+             munch-slight-uc-dtb
              munch-effcpu-dtb
              Image.gz
              
@@ -271,7 +288,7 @@ jobs:
            mkdir -p /tmp/build-metrics
            echo "${{ steps.build_start.outputs.start_date }}" > /tmp/build-metrics/start-date-1
            echo "${{ steps.build_end.outputs.build_duration }}" > /tmp/build-metrics/duration-1
-           # Save LTO configuration information
+
            if [[ "${{ github.event.inputs.USE_LTO_THIN }}" == "true" ]]; then
              echo "LTO: THIN" > /tmp/build-metrics/lto-config-1
            else
@@ -292,7 +309,7 @@ jobs:
      if: needs.determine_build_targets.outputs.build_kernel_2 == 'true'
      strategy:
        matrix:
-         type: [original, los, modified]
+         type: [original, los, modified, swift]
      runs-on: ubuntu-latest
      env:
        UPLOAD_TO_RELEASE: false
@@ -371,7 +388,7 @@ jobs:
          run: |
            cd kernel_tree
            echo "Changing LTO configuration from FULL to THIN..."
-           sed -i '
+           sed -i -e '
            /CONFIG_ARCH_SUPPORTS_LTO_CLANG=y/c\CONFIG_ARCH_SUPPORTS_LTO_CLANG=y
            /# CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN is not set/c\CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN=y
            /CONFIG_HAS_LTO_CLANG=y/c\CONFIG_HAS_LTO_CLANG=y
@@ -390,18 +407,26 @@ jobs:
             echo "Applying LOS-IR patch for the LOS build..."
             patch -p1 -f < "0001-LOS-IR.patch"
           fi
+
+       - name: Apply Modifications (if swift build)
+         if: matrix.type == 'swift'
+         run: |
+           cd kernel_tree
+           sed -i -e '/<2841600>,/c\<2841600>;' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
+           sed -i -e '/<3187200>;/d' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
            
        - name: Apply Modifications (if modified build)
          if: matrix.type == 'modified'
          run: |
            cd kernel_tree
-           sed -i '/<2553600>,/c\<2553600>;' arch/arm64/boot/dts/vendor/qcom/kona.dtsi 
-           sed -i '/<2649600>,/c\//<2649600>,' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
-           sed -i '/<2745600>,/c\//<2745600>,' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
-           sed -i '/<2841600>;/c\//<2841600>;' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
-           sed -i 's/qcom,mdss-pan-physical-width-dimension = <70>;$/qcom,mdss-pan-physical-width-dimension = <695>;/' arch/arm64/boot/dts/vendor/qcom/dsi-panel-l11r-38-08-0a-dsc-cmd.dtsi
-           sed -i 's/qcom,mdss-pan-physical-height-dimension = <155>;$/qcom,mdss-pan-physical-height-dimension = <1546>;/' arch/arm64/boot/dts/vendor/qcom/dsi-panel-l11r-38-08-0a-dsc-cmd.dtsi
-       
+           sed -i -e '/<2553600>,/c\<2553600>;' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
+           sed -i -e '/<2649600>,/c\//<2649600>,' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
+           sed -i -e '/<2745600>,/c\//<2745600>,' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
+           sed -i -e '/<2841600>,/c\//<2841600>,' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
+           sed -i -e '/<3187200>;/c\//<3187200>;' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
+           sed -i -e 's/qcom,mdss-pan-physical-width-dimension = <70>;$/qcom,mdss-pan-physical-width-dimension = <695>;/' arch/arm64/boot/dts/vendor/qcom/dsi-panel-l11r-38-08-0a-dsc-cmd.dtsi
+           sed -i -e 's/qcom,mdss-pan-physical-height-dimension = <155>;$/qcom,mdss-pan-physical-height-dimension = <1546>;/' arch/arm64/boot/dts/vendor/qcom/dsi-panel-l11r-38-08-0a-dsc-cmd.dtsi
+
        - name: Record build start time
          id: build_start
          run: |
@@ -418,8 +443,8 @@ jobs:
            fi
            export ARCH=arm64
            export SUBARCH=ARM64
-           export KBUILD_BUILD_USER="senseix"
-           export KBUILD_BUILD_HOST="ubuntu"
+           export KBUILD_BUILD_USER="Senseix"
+           export KBUILD_BUILD_HOST="Ubuntu"
            cd kernel_tree
            make O=out vendor/munch_defconfig
            make O=out CC=clang -j$(nproc --all) CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1
@@ -429,6 +454,8 @@ jobs:
              cp out/arch/arm64/boot/Image.gz ../Image.gz
            elif [[ "${{ matrix.type }}" == "los" ]]; then
              mv out/arch/arm64/boot/dtbo.img ../munch-aosp-ir-dtbo.img
+           elif [[ "${{ matrix.type }}" == "swift" ]]; then
+             mv out/arch/arm64/boot/dtb ../munch-slight-uc-dtb
            else
              mv out/arch/arm64/boot/dtbo.img ../munch-miui-dtbo.img
              mv out/arch/arm64/boot/dtb ../munch-effcpu-dtb
@@ -446,6 +473,12 @@ jobs:
              ls -la munch-aosp-ir-dtbo.img
              if [[ ! -s munch-aosp-ir-dtbo.img ]]; then
                echo "Error: LOS DTBO is missing or empty"
+               exit 1
+             fi
+           elif [[ "${{ matrix.type }}" == "swift" ]]; then
+             ls -la munch-slight-uc-dtb
+             if [[ ! -s munch-slight-uc-dtb ]]; then
+               echo "Error: Swift DTB is missing or empty"
                exit 1
              fi
            else
@@ -474,6 +507,7 @@ jobs:
              munch-aosp-ir-dtbo.img
              munch-miui-dtbo.img
              munch-normal-dtb
+             munch-slight-uc-dtb
              munch-effcpu-dtb
              Image.gz
              
@@ -483,7 +517,7 @@ jobs:
            mkdir -p /tmp/build-metrics
            echo "${{ steps.build_start.outputs.start_date }}" > /tmp/build-metrics/start-date-2
            echo "${{ steps.build_end.outputs.build_duration }}" > /tmp/build-metrics/duration-2
-           # Save LTO configuration information
+ 
            if [[ "${{ github.event.inputs.USE_LTO_THIN }}" == "true" ]]; then
              echo "LTO: THIN" > /tmp/build-metrics/lto-config-2
            else
@@ -522,6 +556,12 @@ jobs:
          with:
            name: kernel-1-modified
            path: kernel-1-modified
+
+       - name: Download Kernel Build Swift
+         uses: actions/download-artifact@v4
+         with:
+           name: kernel-1-swift
+           path: kernel-1-swift
            
        - name: Download build metrics
          uses: actions/download-artifact@v4
@@ -532,11 +572,21 @@ jobs:
        - name: Clone AnyKernel3
          run: git clone --recursive --depth=1 ${{ github.event.inputs.ANYKERNEL_URL }} -b ${{ github.event.inputs.ANYKERNEL_BRANCH }} AnyKernel3-1
      
-       - name: Move Kernel Files to AnyKernel3
+       - name: Move Kernel Files to AnyKernel3 and List themMore actions
          run: |
-           mv kernel-1-original/* AnyKernel3-1/
-           mv kernel-1-los/* AnyKernel3-1/
-           mv kernel-1-modified/* AnyKernel3-1/
+           # Move the files from each build directory to AnyKernel3
+           cp -v kernel-1-original/* AnyKernel3-1/ || true
+           cp -v kernel-1-los/* AnyKernel3-1/ || true
+           cp -v kernel-1-modified/* AnyKernel3-1/ || true
+           cp -v kernel-1-swift/* AnyKernel3-1/ || true
+              
+           # List all files in AnyKernel3 to verify
+           echo "Contents of AnyKernel3 directory:"
+           ls -la AnyKernel3-1/
+              
+           # Specifically check for DTBO files
+           echo "DTBO files in AnyKernel3:"
+           ls -la AnyKernel3-1/*dtbo.img || echo "No DTBO files found!"
           
        - name: Define ZIP Name
          run: |
@@ -681,6 +731,12 @@ jobs:
          with:
            name: kernel-2-modified
            path: kernel-2-modified
+
+       - name: Download Kernel Build SwiftAdd commentMore actions
+         uses: actions/download-artifact@v4
+         with:
+           name: kernel-2-swift
+           path: kernel-2-swift
            
        - name: Download build metrics
          uses: actions/download-artifact@v4
@@ -691,11 +747,21 @@ jobs:
        - name: Clone AnyKernel3
          run: git clone --recursive --depth=1 ${{ github.event.inputs.ANYKERNEL_URL }} -b ${{ github.event.inputs.ANYKERNEL_BRANCH }} AnyKernel3-2
      
-       - name: Move Kernel Files to AnyKernel3
+       - name: Move Kernel Files to AnyKernel3 and List themMore actions
          run: |
-           mv kernel-2-original/* AnyKernel3-2/
-           mv kernel-2-los/* AnyKernel3-2/
-           mv kernel-2-modified/* AnyKernel3-2/
+           # Move the files from each build directory to AnyKernel3
+           cp -v kernel-2-original/* AnyKernel3-2/ || true
+           cp -v kernel-2-los/* AnyKernel3-2/ || true
+           cp -v kernel-2-modified/* AnyKernel3-2/ || true
+           cp -v kernel-2-swift/* AnyKernel3-2/ || true
+              
+           # List all files in AnyKernel3 to verify
+           echo "Contents of AnyKernel3 directory:"
+           ls -la AnyKernel3-2/
+              
+           # Specifically check for DTBO files
+           echo "DTBO files in AnyKernel3:"
+           ls -la AnyKernel3-2/*dtbo.img || echo "No DTBO files found!"
           
        - name: Define ZIP Name
          run: |
