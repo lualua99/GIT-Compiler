@@ -42,8 +42,8 @@ on:
          description: 'Custom Kernel Version'
          default: '-FusionX'
          required: false
-       USE_LTO_THIN:
-         description: 'Use LTO Thin instead of LTO Full'
+       USE_LTO_FULL:
+         description: 'Use LTO Full instead of LTO Thin'
          required: false
          type: boolean
          default: false
@@ -154,18 +154,17 @@ jobs:
              sed -i -e 's/CONFIG_LOCALVERSION="-FusionX"/CONFIG_LOCALVERSION="${{ github.event.inputs.CUSTOM_SED }}"/' arch/arm64/configs/vendor/munch_defconfig
            fi
            
-       - name: Change LTO Configuration to THIN
-         if: ${{ github.event.inputs.USE_LTO_THIN == 'true' }}
+       - name: Change LTO Configuration to FULL
+         if: ${{ github.event.inputs.USE_LTO_FULL == 'true' }}
          run: |
            cd kernel_tree
-           echo "Changing LTO configuration from FULL to THIN..."
+           echo "Changing LTO configuration from THIN to FULL..."
            sed -i -e '
-           /CONFIG_ARCH_SUPPORTS_LTO_CLANG=y/c\CONFIG_ARCH_SUPPORTS_LTO_CLANG=y
-           /# CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN is not set/c\CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN=y
+           /CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN=y/c\# CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN is not set
            /CONFIG_HAS_LTO_CLANG=y/c\CONFIG_HAS_LTO_CLANG=y
            /# CONFIG_LTO_NONE is not set/c\# CONFIG_LTO_NONE is not set
-           /CONFIG_LTO_CLANG_FULL=y/c\# CONFIG_LTO_CLANG_FULL is not set
-           /CONFIG_LTO_CLANG_THIN=n/c\CONFIG_LTO_CLANG_THIN=y
+           /# CONFIG_LTO_CLANG_FULL is not set/c\CONFIG_LTO_CLANG_FULL=y
+           /CONFIG_LTO_CLANG_THIN=y/c\# CONFIG_LTO_CLANG_THIN is not set
            ' arch/arm64/configs/vendor/munch_defconfig
            
        - name: Apply Patches
@@ -289,10 +288,10 @@ jobs:
            echo "${{ steps.build_start.outputs.start_date }}" > /tmp/build-metrics/start-date-1
            echo "${{ steps.build_end.outputs.build_duration }}" > /tmp/build-metrics/duration-1
 
-           if [[ "${{ github.event.inputs.USE_LTO_THIN }}" == "true" ]]; then
-             echo "LTO: THIN" > /tmp/build-metrics/lto-config-1
-           else
+           if [[ "${{ github.event.inputs.USE_LTO_FULL }}" == "true" ]]; then
              echo "LTO: FULL" > /tmp/build-metrics/lto-config-1
+           else
+             echo "LTO: THIN" > /tmp/build-metrics/lto-config-1
            fi
            # Save Clang toolchain information
            echo "CLANG: ${{ github.event.inputs.CLANG_TOOLCHAIN }}" >> /tmp/build-metrics/lto-config-1
@@ -383,18 +382,17 @@ jobs:
              sed -i -e 's/CONFIG_LOCALVERSION="-FusionX"/CONFIG_LOCALVERSION="${{ github.event.inputs.CUSTOM_SED }}"/' arch/arm64/configs/vendor/munch_defconfig
            fi
            
-       - name: Change LTO Configuration to THIN
-         if: ${{ github.event.inputs.USE_LTO_THIN == 'true' }}
+       - name: Change LTO Configuration to FULL
+         if: ${{ github.event.inputs.USE_LTO_FULL == 'true' }}
          run: |
            cd kernel_tree
-           echo "Changing LTO configuration from FULL to THIN..."
+           echo "Changing LTO configuration from THIN to FULL..."
            sed -i -e '
-           /CONFIG_ARCH_SUPPORTS_LTO_CLANG=y/c\CONFIG_ARCH_SUPPORTS_LTO_CLANG=y
-           /# CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN is not set/c\CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN=y
+           /CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN=y/c\# CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN is not set
            /CONFIG_HAS_LTO_CLANG=y/c\CONFIG_HAS_LTO_CLANG=y
            /# CONFIG_LTO_NONE is not set/c\# CONFIG_LTO_NONE is not set
-           /CONFIG_LTO_CLANG_FULL=y/c\# CONFIG_LTO_CLANG_FULL is not set
-           /CONFIG_LTO_CLANG_THIN=n/c\CONFIG_LTO_CLANG_THIN=y
+           /# CONFIG_LTO_CLANG_FULL is not set/c\CONFIG_LTO_CLANG_FULL=y
+           /CONFIG_LTO_CLANG_THIN=y/c\# CONFIG_LTO_CLANG_THIN is not set
            ' arch/arm64/configs/vendor/munch_defconfig
            
        - name: Apply Patches
@@ -518,10 +516,10 @@ jobs:
            echo "${{ steps.build_start.outputs.start_date }}" > /tmp/build-metrics/start-date-2
            echo "${{ steps.build_end.outputs.build_duration }}" > /tmp/build-metrics/duration-2
  
-           if [[ "${{ github.event.inputs.USE_LTO_THIN }}" == "true" ]]; then
-             echo "LTO: THIN" > /tmp/build-metrics/lto-config-2
-           else
+           if [[ "${{ github.event.inputs.USE_LTO_FULL }}" == "true" ]]; then
              echo "LTO: FULL" > /tmp/build-metrics/lto-config-2
+           else
+             echo "LTO: THIN" > /tmp/build-metrics/lto-config-2
            fi
            # Save Clang toolchain information
            echo "CLANG: ${{ github.event.inputs.CLANG_TOOLCHAIN }}" >> /tmp/build-metrics/lto-config-2
