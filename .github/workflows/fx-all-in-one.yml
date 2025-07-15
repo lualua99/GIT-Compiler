@@ -10,21 +10,21 @@ on:
          required: true
        KERNEL_TREE_BRANCH_1:
          description: 'Kernel Tree Branch (SUSFS)'
-         default: 'exp-sus'
+         default: 'exp-susfs'
          required: false
          type: choice
          options:
-           - stable-sus
-           - exp-sus
+           - stable-susfs
+           - exp-susfs
            - fx-base
        KERNEL_TREE_BRANCH_2:
          description: 'Kernel Tree Branch (NEXT)'
-         default: 'exp-nxt'
+         default: 'exp-next'
          required: false
          type: choice
          options:
-           - stable-nxt
-           - exp-nxt
+           - stable-next
+           - exp-next
            - fx-base
        VERSION:
          description: 'Zip Version'
@@ -598,9 +598,9 @@ jobs:
            # Determine build type based on branch combinations
            if [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "fx-base" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "fx-base" ]]; then
              BUILD_TYPE="Personal Build"
-           elif [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "exp-sus" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "exp-nxt" ]]; then
+           elif [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "exp-susfs" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "exp-next" ]]; then
              BUILD_TYPE="Beta Test"
-           elif [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "stable-sus" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "stable-nxt" ]]; then
+           elif [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "stable-susfs" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "stable-next" ]]; then
              BUILD_TYPE="Stable Build"
            else
              BUILD_TYPE="Debug Build"
@@ -773,9 +773,9 @@ jobs:
             # Determine build type based on branch combinations
             if [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "fx-base" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "fx-base" ]]; then
               BUILD_TYPE="Personal Build"
-            elif [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "exp-sus" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "exp-nxt" ]]; then
+            elif [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "exp-susfs" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "exp-next" ]]; then
               BUILD_TYPE="Beta Test"
-            elif [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "stable-sus" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "stable-nxt" ]]; then
+            elif [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "stable-susfs" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "stable-next" ]]; then
               BUILD_TYPE="Stable Build"
             else
               BUILD_TYPE="Debug Build"
