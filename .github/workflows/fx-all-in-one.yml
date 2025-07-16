@@ -10,21 +10,21 @@ on:
          required: true
        KERNEL_TREE_BRANCH_1:
          description: 'Kernel Tree Branch (SUSFS)'
-         default: 'exp-susfs'
+         default: 'wip-susfs'
          required: false
          type: choice
          options:
            - stable-susfs
-           - exp-susfs
+           - wip-susfs
            - fx-base
        KERNEL_TREE_BRANCH_2:
          description: 'Kernel Tree Branch (NEXT)'
-         default: 'exp-next'
+         default: 'wip-next'
          required: false
          type: choice
          options:
            - stable-next
-           - exp-next
+           - wip-next
            - fx-base
        VERSION:
          description: 'Zip Version'
@@ -598,7 +598,7 @@ jobs:
            # Determine build type based on branch combinations
            if [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "fx-base" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "fx-base" ]]; then
              BUILD_TYPE="Personal Build"
-           elif [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "exp-susfs" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "exp-next" ]]; then
+           elif [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "wip-susfs" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "wip-next" ]]; then
              BUILD_TYPE="Beta Test"
            elif [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "stable-susfs" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "stable-next" ]]; then
              BUILD_TYPE="Stable Build"
@@ -773,7 +773,7 @@ jobs:
             # Determine build type based on branch combinations
             if [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "fx-base" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "fx-base" ]]; then
               BUILD_TYPE="Personal Build"
-            elif [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "exp-susfs" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "exp-next" ]]; then
+            elif [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "wip-susfs" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "wip-next" ]]; then
               BUILD_TYPE="Beta Test"
             elif [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "stable-susfs" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "stable-next" ]]; then
               BUILD_TYPE="Stable Build"
