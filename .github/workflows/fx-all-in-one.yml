@@ -42,8 +42,8 @@ on:
          description: 'Custom Kernel Version'
          default: '-FusionX'
          required: false
-       USE_LTO_FULL:
-         description: 'Use LTO Full instead of LTO Thin'
+       USE_LTO_THIN:
+         description: 'Use LTO THIN instead of LTO FULL'
          required: false
          type: boolean
          default: false
@@ -65,12 +65,10 @@ jobs:
      steps:
        - id: set-targets
          run: |
-           # Only build NEXT kernel if both are set to fx-base
            if [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "fx-base" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "fx-base" ]]; then
              echo "build_kernel_1=false" >> $GITHUB_OUTPUT
              echo "build_kernel_2=true" >> $GITHUB_OUTPUT
            else
-             # Build both kernels for other branch combinations
              echo "build_kernel_1=true" >> $GITHUB_OUTPUT
              echo "build_kernel_2=true" >> $GITHUB_OUTPUT
            fi
@@ -128,7 +126,6 @@ jobs:
        - name: Extract Repository Owner and Name
          id: repo-info
          run: |
-           # Extract owner/repo format from the full URL
            if [[ "${{ github.event.inputs.KERNEL_TREE_1 }}" =~ github.com/([^/]+)/([^/]+) ]]; then
              REPO_OWNER="${BASH_REMATCH[1]}"
              REPO_NAME="${BASH_REMATCH[2]}"
@@ -154,17 +151,17 @@ jobs:
              sed -i -e 's/CONFIG_LOCALVERSION="-FusionX"/CONFIG_LOCALVERSION="${{ github.event.inputs.CUSTOM_SED }}"/' arch/arm64/configs/vendor/munch_defconfig
            fi
            
-       - name: Change LTO Configuration to FULL
-         if: ${{ github.event.inputs.USE_LTO_FULL == 'true' }}
+       - name: Change LTO Configuration to THIN
+         if: ${{ github.event.inputs.USE_LTO_THIN == 'true' }}
          run: |
            cd kernel_tree
-           echo "Changing LTO configuration from THIN to FULL..."
+           echo "Changing LTO configuration from FULL to THIN..."
            sed -i -e '
-           /CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN=y/c\# CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN is not set
+           /CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN=y/c\CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN=y
            /CONFIG_HAS_LTO_CLANG=y/c\CONFIG_HAS_LTO_CLANG=y
            /# CONFIG_LTO_NONE is not set/c\# CONFIG_LTO_NONE is not set
-           /# CONFIG_LTO_CLANG_FULL is not set/c\CONFIG_LTO_CLANG_FULL=y
-           /CONFIG_LTO_CLANG_THIN=y/c\# CONFIG_LTO_CLANG_THIN is not set
+           /CONFIG_LTO_CLANG_FULL=y/c\# CONFIG_LTO_CLANG_FULL is not set
+           /# CONFIG_LTO_CLANG_THIN is not set/c\CONFIG_LTO_CLANG_THIN=y
            ' arch/arm64/configs/vendor/munch_defconfig
            
        - name: Apply Patches
@@ -172,7 +169,6 @@ jobs:
           cd kernel_tree
           bash nextpatch.sh
           
-          # Apply LOS-IR patch only for the 'los' build type
           if [[ "${{ matrix.type }}" == "los" ]]; then
             echo "Applying LOS-IR patch for the LOS build..."
             patch -p1 -f < "0001-LOS-IR.patch"
@@ -200,7 +196,6 @@ jobs:
        - name: Record build start time
          id: build_start
          run: |
-           # Set timezone to PHT (UTC+8) and use 12-hour format with AM/PM
            echo "start_time=$(date +%s)" >> $GITHUB_OUTPUT
            echo "start_date=$(TZ=Asia/Manila date +'%b %d, %Y %I:%M %p')" >> $GITHUB_OUTPUT
        
@@ -221,7 +216,7 @@ jobs:
            if [[ "${{ matrix.type }}" == "original" ]]; then
              mv out/arch/arm64/boot/dtbo.img ../munch-aosp-dtbo.img
              mv out/arch/arm64/boot/dtb ../munch-normal-dtb
-             cp out/arch/arm64/boot/Image.gz ../Image.gz
+             cp out/arch/arm64/boot/Image ../Image
            elif [[ "${{ matrix.type }}" == "los" ]]; then
              mv out/arch/arm64/boot/dtbo.img ../munch-aosp-ir-dtbo.img
            elif [[ "${{ matrix.type }}" == "swift" ]]; then
@@ -234,8 +229,8 @@ jobs:
        - name: Verify build artifacts
          run: |
            if [[ "${{ matrix.type }}" == "original" ]]; then
-             ls -la munch-aosp-dtbo.img munch-normal-dtb Image.gz
-             if [[ ! -s munch-aosp-dtbo.img || ! -s munch-normal-dtb || ! -s Image.gz ]]; then
+             ls -la munch-aosp-dtbo.img munch-normal-dtb Image
+             if [[ ! -s munch-aosp-dtbo.img || ! -s munch-normal-dtb || ! -s Image ]]; then
                echo "Error: One or more original build artifacts is missing or empty"
                exit 1
              fi
@@ -279,7 +274,7 @@ jobs:
              munch-normal-dtb
              munch-slight-uc-dtb
              munch-effcpu-dtb
-             Image.gz
+             Image
              
        - name: Save build metrics
          if: matrix.type == 'original'
@@ -288,12 +283,11 @@ jobs:
            echo "${{ steps.build_start.outputs.start_date }}" > /tmp/build-metrics/start-date-1
            echo "${{ steps.build_end.outputs.build_duration }}" > /tmp/build-metrics/duration-1
 
-           if [[ "${{ github.event.inputs.USE_LTO_FULL }}" == "true" ]]; then
-             echo "LTO: FULL" > /tmp/build-metrics/lto-config-1
-           else
+           if [[ "${{ github.event.inputs.USE_LTO_THIN }}" == "true" ]]; then
              echo "LTO: THIN" > /tmp/build-metrics/lto-config-1
+           else
+             echo "LTO: FULL" > /tmp/build-metrics/lto-config-1
            fi
-           # Save Clang toolchain information
            echo "CLANG: ${{ github.event.inputs.CLANG_TOOLCHAIN }}" >> /tmp/build-metrics/lto-config-1
        
        - name: Upload build metrics
@@ -356,7 +350,6 @@ jobs:
        - name: Extract Repository Owner and Name
          id: repo-info
          run: |
-           # Extract owner/repo format from the full URL
            if [[ "${{ github.event.inputs.KERNEL_TREE_1 }}" =~ github.com/([^/]+)/([^/]+) ]]; then
              REPO_OWNER="${BASH_REMATCH[1]}"
              REPO_NAME="${BASH_REMATCH[2]}"
@@ -382,17 +375,17 @@ jobs:
              sed -i -e 's/CONFIG_LOCALVERSION="-FusionX"/CONFIG_LOCALVERSION="${{ github.event.inputs.CUSTOM_SED }}"/' arch/arm64/configs/vendor/munch_defconfig
            fi
            
-       - name: Change LTO Configuration to FULL
-         if: ${{ github.event.inputs.USE_LTO_FULL == 'true' }}
+       - name: Change LTO Configuration to THIN
+         if: ${{ github.event.inputs.USE_LTO_THIN == 'true' }}
          run: |
            cd kernel_tree
-           echo "Changing LTO configuration from THIN to FULL..."
+           echo "Changing LTO configuration from FULL to THIN..."
            sed -i -e '
-           /CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN=y/c\# CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN is not set
+           /CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN=y/c\CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN=y
            /CONFIG_HAS_LTO_CLANG=y/c\CONFIG_HAS_LTO_CLANG=y
            /# CONFIG_LTO_NONE is not set/c\# CONFIG_LTO_NONE is not set
-           /# CONFIG_LTO_CLANG_FULL is not set/c\CONFIG_LTO_CLANG_FULL=y
-           /CONFIG_LTO_CLANG_THIN=y/c\# CONFIG_LTO_CLANG_THIN is not set
+           /CONFIG_LTO_CLANG_FULL=y/c\# CONFIG_LTO_CLANG_FULL is not set
+           /# CONFIG_LTO_CLANG_THIN is not set/c\CONFIG_LTO_CLANG_THIN=y
            ' arch/arm64/configs/vendor/munch_defconfig
            
        - name: Apply Patches
@@ -400,7 +393,6 @@ jobs:
           cd kernel_tree
           bash nextpatch.sh
           
-          # Apply LOS-IR patch only for the 'los' build type
           if [[ "${{ matrix.type }}" == "los" ]]; then
             echo "Applying LOS-IR patch for the LOS build..."
             patch -p1 -f < "0001-LOS-IR.patch"
@@ -449,7 +441,7 @@ jobs:
            if [[ "${{ matrix.type }}" == "original" ]]; then
              mv out/arch/arm64/boot/dtbo.img ../munch-aosp-dtbo.img
              mv out/arch/arm64/boot/dtb ../munch-normal-dtb
-             cp out/arch/arm64/boot/Image.gz ../Image.gz
+             cp out/arch/arm64/boot/Image ../Image
            elif [[ "${{ matrix.type }}" == "los" ]]; then
              mv out/arch/arm64/boot/dtbo.img ../munch-aosp-ir-dtbo.img
            elif [[ "${{ matrix.type }}" == "swift" ]]; then
@@ -462,8 +454,8 @@ jobs:
        - name: Verify build artifacts
          run: |
            if [[ "${{ matrix.type }}" == "original" ]]; then
-             ls -la munch-aosp-dtbo.img munch-normal-dtb Image.gz
-             if [[ ! -s munch-aosp-dtbo.img || ! -s munch-normal-dtb || ! -s Image.gz ]]; then
+             ls -la munch-aosp-dtbo.img munch-normal-dtb Image
+             if [[ ! -s munch-aosp-dtbo.img || ! -s munch-normal-dtb || ! -s Image ]]; then
                echo "Error: One or more original build artifacts is missing or empty"
                exit 1
              fi
@@ -507,7 +499,7 @@ jobs:
              munch-normal-dtb
              munch-slight-uc-dtb
              munch-effcpu-dtb
-             Image.gz
+             Image
              
        - name: Save build metrics
          if: matrix.type == 'original'
@@ -516,12 +508,11 @@ jobs:
            echo "${{ steps.build_start.outputs.start_date }}" > /tmp/build-metrics/start-date-2
            echo "${{ steps.build_end.outputs.build_duration }}" > /tmp/build-metrics/duration-2
  
-           if [[ "${{ github.event.inputs.USE_LTO_FULL }}" == "true" ]]; then
-             echo "LTO: FULL" > /tmp/build-metrics/lto-config-2
-           else
+           if [[ "${{ github.event.inputs.USE_LTO_THIN }}" == "true" ]]; then
              echo "LTO: THIN" > /tmp/build-metrics/lto-config-2
+           else
+             echo "LTO: FULL" > /tmp/build-metrics/lto-config-2
            fi
-           # Save Clang toolchain information
            echo "CLANG: ${{ github.event.inputs.CLANG_TOOLCHAIN }}" >> /tmp/build-metrics/lto-config-2
        
        - name: Upload build metrics
@@ -588,14 +579,12 @@ jobs:
           
        - name: Define ZIP Name
          run: |
-           # Use Philippine timezone (UTC+8) for date with month and day in numbers
            COMPILED_DATE=$(TZ=Asia/Manila date +%m%d)
            LTO_CONFIG=$(cat build-metrics/lto-config-1 | head -n 1 | cut -d' ' -f2)
            CLANG_TOOLCHAIN=$(cat build-metrics/lto-config-1 | tail -n 1 | cut -d' ' -f2)
            
            BASE_NAME="FusionX-SUSFS"
 
-           # Determine build type based on branch combinations
            if [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "fx-base" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "fx-base" ]]; then
              BUILD_TYPE="Personal Build"
            elif [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "wip-susfs" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "wip-next" ]]; then
@@ -628,7 +617,6 @@ jobs:
            echo "start_date=$start_date" >> $GITHUB_OUTPUT
            echo "duration=$duration" >> $GITHUB_OUTPUT
            
-           # Convert seconds to minutes and seconds format
            minutes=$((duration / 60))
            seconds=$((duration % 60))
            echo "build_time=${minutes}m ${seconds}s" >> $GITHUB_OUTPUT
@@ -666,7 +654,6 @@ jobs:
                response = requests.post(url, data=data, files=files)
                return response.json()
            
-           # Get environment variables
            bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
            chat_id = os.environ.get('TELEGRAM_CHAT_ID')
            kernel_name = os.environ.get('KERNEL_NAME')
@@ -766,14 +753,12 @@ jobs:
           
        - name: Define ZIP Name
          run: |
-            # Use Philippine timezone (UTC+8) for date with month and day in numbers
             COMPILED_DATE=$(TZ=Asia/Manila date +%m%d)
             LTO_CONFIG=$(cat build-metrics/lto-config-2 | head -n 1 | cut -d' ' -f2)
             CLANG_TOOLCHAIN=$(cat build-metrics/lto-config-2 | tail -n 1 | cut -d' ' -f2)
             
             BASE_NAME="FusionX-NEXT"
  
-            # Determine build type based on branch combinations
             if [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "fx-base" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "fx-base" ]]; then
               BUILD_TYPE="Personal Build"
             elif [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "wip-susfs" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "wip-next" ]]; then
@@ -806,7 +791,6 @@ jobs:
             echo "start_date=$start_date" >> $GITHUB_OUTPUT
             echo "duration=$duration" >> $GITHUB_OUTPUT
             
-            # Convert seconds to minutes and seconds format
             minutes=$((duration / 60))
             seconds=$((duration % 60))
             echo "build_time=${minutes}m ${seconds}s" >> $GITHUB_OUTPUT
