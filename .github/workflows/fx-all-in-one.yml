@@ -1,872 +1,476 @@
-name: FusionX-All-in-One
- 
+
+name: FusionX-ALL-IN-ONE
+
 on:
-   pull_request:
-   workflow_dispatch:
-     inputs:
-       KERNEL_TREE_1:
-         description: 'Kernel Tree'
-         default: 'https://github.com/SenseiiX/fusionX_sm8250'
-         required: true
-       KERNEL_TREE_BRANCH_1:
-         description: 'Kernel Tree Branch (SUSFS)'
-         default: 'wip-susfs'
-         required: false
-         type: choice
-         options:
-           - stable-susfs
-           - wip-susfs
-           - fx-base
-       KERNEL_TREE_BRANCH_2:
-         description: 'Kernel Tree Branch (NEXT)'
-         default: 'wip-next'
-         required: false
-         type: choice
-         options:
-           - stable-next
-           - wip-next
-           - fx-base
-       VERSION:
-         description: 'Zip Version'
-         default: '1.x'
-         required: false
-       ANYKERNEL_URL:
-         description: 'AnyKernel Url (leave blank if you dont want AnyKernel)'
-         default: 'https://github.com/SenseiiX/AnyKernel3'
-         required: false
-       ANYKERNEL_BRANCH:
-         description: 'AnyKernel Branch'
-         default: 'fusionX'
-         required: true
-       CUSTOM_SED:
-         description: 'Custom Kernel Version'
-         default: '-FusionX'
-         required: false
-       USE_LTO_THIN:
-         description: 'Use LTO THIN instead of LTO FULL'
-         required: false
-         type: boolean
-         default: false
-       CLANG_TOOLCHAIN:
-         description: 'Choose which Clang toolchain to use'
-         required: false
-         type: choice
-         options:
-           - aosp clang
-           - neutron clang
-         default: 'aosp clang'
- 
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      BUILD_TITLE:
+        description: 'Custom Build Title'
+        required: false
+      KERNEL_TREE_1:
+        description: 'Kernel Tree'
+        default: 'https://github.com/SenseiiX/fusionX_sm8250.git'
+        required: true
+      KERNEL_TREE_BRANCH_1:
+        description: 'Kernel Tree Branch (SUSFS)'
+        default: 'wip-susfs'
+        required: false
+        type: choice
+        options:
+          - stable-susfs
+          - wip-susfs
+      KERNEL_TREE_BRANCH_2:
+        description: 'Kernel Tree Branch (NEXT)'
+        default: 'wip-next'
+        required: false
+        type: choice
+        options:
+          - stable-next
+          - wip-next
+      KERNEL_TREE_BRANCH_3:
+        description: 'Kernel Tree Branch (NOKSU)'
+        default: 'wip-noksu'
+        required: false
+        type: choice
+        options:
+          - stable-noksu
+          - wip-noksu
+      VERSION:
+        description: 'Zip Version'
+        default: '2.x'
+        required: false
+      ANYKERNEL_URL:
+        description: 'AnyKernel Url (leave blank if you dont want AnyKernel)'
+        default: 'https://github.com/SenseiiX/AnyKernel3'
+        required: false
+      CUSTOM_SED:
+        description: 'Custom Kernel Version'
+        default: '-FusionX'
+        required: false
+      CLANG_TOOLCHAIN:
+        description: 'Clang toolchain selection'
+        default: 'aosp clang'
+        required: true
+        type: choice
+        options:
+        - neutron
+        - aosp clang
+      USE_LTO_THIN:
+        description: 'Use LTO THIN instead of FULL'
+        default: 'false'
+        required: false
+        type: boolean
+
 jobs:
-   determine_build_targets:
-     runs-on: ubuntu-latest
-     outputs:
-       build_kernel_1: ${{ steps.set-targets.outputs.build_kernel_1 }}
-       build_kernel_2: ${{ steps.set-targets.outputs.build_kernel_2 }}
-     steps:
-       - id: set-targets
-         run: |
-           if [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "fx-base" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "fx-base" ]]; then
-             echo "build_kernel_1=false" >> $GITHUB_OUTPUT
-             echo "build_kernel_2=true" >> $GITHUB_OUTPUT
-           else
-             echo "build_kernel_1=true" >> $GITHUB_OUTPUT
-             echo "build_kernel_2=true" >> $GITHUB_OUTPUT
-           fi
-           
-   build_kernel_1:
-     needs: determine_build_targets
-     if: needs.determine_build_targets.outputs.build_kernel_1 == 'true'
-     strategy:
-       matrix:
-         type: [original, los, modified, swift]
-     runs-on: ubuntu-latest
-     env:
-       UPLOAD_TO_RELEASE: false
-       KERNEL_VARIANT: SUSFS
- 
-     steps:
-       - name: Install Dependencies
-         run: |
-           sudo apt install flex libncurses6
-           # Install zstd if using neutron clang
-           if [[ "${{ github.event.inputs.CLANG_TOOLCHAIN }}" == "neutron clang" ]]; then
-             sudo apt install zstd
-           fi
+  build:
+    strategy:
+      matrix:
+        kernel: [1, 2, 3, 4, 5, 6]
+        branch: [SUSFS, NEXT, NOKSU] 
+    runs-on: ubuntu-latest
+    env:
+      UPLOAD_TO_RELEASE: false
 
-       - name: Cache Clang toolchain
-         uses: actions/cache@v3
-         id: cache-clang
-         with:
-           path: ${{ github.event.inputs.CLANG_TOOLCHAIN == 'aosp clang' && 'clang-aosp' || 'clang-neutron' }}
-           key: ${{ github.event.inputs.CLANG_TOOLCHAIN }}-${{ runner.os }}-${{ github.event.inputs.CLANG_TOOLCHAIN == 'aosp clang' && 'r547379' || '10032024-v1' }}
-           restore-keys: |
-             ${{ github.event.inputs.CLANG_TOOLCHAIN }}-${{ runner.os }}-
-             ${{ github.event.inputs.CLANG_TOOLCHAIN }}-
+    steps:
+      - name: Install Dependencies
+        run: sudo apt install flex libncurses6
 
-       - name: Download & Extract Clang (If not cached)
-         if: steps.cache-clang.outputs.cache-hit != 'true'
-         run: |
-           if [[ "${{ github.event.inputs.CLANG_TOOLCHAIN }}" == "aosp clang" ]]; then
-             wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r547379.tar.gz -O clang.tar.gz
-             mkdir -p clang-aosp
-             tar -xf clang.tar.gz -C clang-aosp
-           else
-             wget https://github.com/Neutron-Toolchains/clang-build-catalogue/releases/download/10032024/neutron-clang-10032024.tar.zst -O clang.tar.zst
-             mkdir -p clang-neutron
-             unzstd -d clang.tar.zst
-             tar -xf clang.tar -C clang-neutron
-           fi
-           
-       - name: Set Kernel Environment Variables
-         run: |
-           echo "KERNEL_TREE=${{ github.event.inputs.KERNEL_TREE_1 }}" >> $GITHUB_ENV
-           echo "KERNEL_TREE_BRANCH=${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" >> $GITHUB_ENV
-           echo "CLANG_TOOLCHAIN=${{ github.event.inputs.CLANG_TOOLCHAIN }}" >> $GITHUB_ENV
-           
-       - name: Extract Repository Owner and Name
-         id: repo-info
-         run: |
-           if [[ "${{ github.event.inputs.KERNEL_TREE_1 }}" =~ github.com/([^/]+)/([^/]+) ]]; then
-             REPO_OWNER="${BASH_REMATCH[1]}"
-             REPO_NAME="${BASH_REMATCH[2]}"
-             echo "repository=${REPO_OWNER}/${REPO_NAME}" >> $GITHUB_OUTPUT
-             echo "Using repository: ${REPO_OWNER}/${REPO_NAME}"
-           else
-             echo "::error::Invalid GitHub repository URL format"
-             exit 1
-           fi
-           
-       - name: Checkout Kernel
-         uses: actions/checkout@v4
-         with:
-           repository: ${{ steps.repo-info.outputs.repository }}
-           ref: ${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}
-           path: kernel_tree
-           fetch-depth: 1
- 
-       - name: Kernel Version
-         run: |
-           cd kernel_tree
-           if [[ "${{ github.event.inputs.CUSTOM_SED }}" != "-FusionX" ]]; then
-             sed -i -e 's/CONFIG_LOCALVERSION="-FusionX"/CONFIG_LOCALVERSION="${{ github.event.inputs.CUSTOM_SED }}"/' arch/arm64/configs/vendor/munch_defconfig
-           fi
-           
-       - name: Change LTO Configuration to THIN
-         if: ${{ github.event.inputs.USE_LTO_THIN == 'true' }}
-         run: |
-           cd kernel_tree
-           echo "Changing LTO configuration from FULL to THIN..."
-           sed -i -e '
-           /CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN=y/c\CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN=y
-           /CONFIG_HAS_LTO_CLANG=y/c\CONFIG_HAS_LTO_CLANG=y
-           /# CONFIG_LTO_NONE is not set/c\# CONFIG_LTO_NONE is not set
-           /CONFIG_LTO_CLANG_FULL=y/c\# CONFIG_LTO_CLANG_FULL is not set
-           /# CONFIG_LTO_CLANG_THIN is not set/c\CONFIG_LTO_CLANG_THIN=y
-           ' arch/arm64/configs/vendor/munch_defconfig
-           
-       - name: Apply Patches
-         run: |
-          cd kernel_tree
-          bash nextpatch.sh
-          
-          if [[ "${{ matrix.type }}" == "los" ]]; then
-            echo "Applying LOS-IR patch for the LOS build..."
-            patch -p1 -f < "0001-LOS-IR.patch"
+      - name: Cache Clang Toolchain
+        id: cache-clang
+        uses: actions/cache@v4
+        with:
+          path: |
+            clang-neutron
+            clang-aosp
+          key: clang-toolchain-${{ github.event.inputs.CLANG_TOOLCHAIN }}-${{ hashFiles('**/clang-version') }}
+          restore-keys: |
+            clang-toolchain-${{ github.event.inputs.CLANG_TOOLCHAIN }}-
+
+      - name: Download & Extract Clang (If not cached)
+        if: steps.cache-clang.outputs.cache-hit != 'true'
+        run: |
+          if [[ "${{ github.event.inputs.CLANG_TOOLCHAIN }}" == "aosp clang" ]]; then
+            wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r547379.tar.gz -O clang.tar.gz
+            mkdir -p clang-aosp
+            tar -xf clang.tar.gz -C clang-aosp
+            echo "aosp-r547379" > clang-version
+          else
+            wget https://github.com/Neutron-Toolchains/clang-build-catalogue/releases/download/10032024/neutron-clang-10032024.tar.zst -O clang.tar.zst
+            mkdir -p clang-neutron
+            unzstd -d clang.tar.zst
+            tar -xf clang.tar -C clang-neutron
+            echo "neutron-10032024" > clang-version
           fi
 
-       - name: Apply Modifications (if swift build)
-         if: matrix.type == 'swift'
-         run: |
-           cd kernel_tree
-           sed -i -e '/<2841600>,/c\<2841600>;' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
-           sed -i -e '/<3187200>;/d' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
-           
-       - name: Apply Modifications (if modified build)
-         if: matrix.type == 'modified'
-         run: |
-           cd kernel_tree
-           sed -i -e '/<2553600>,/c\<2553600>;' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
-           sed -i -e '/<2649600>,/c\//<2649600>,' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
-           sed -i -e '/<2745600>,/c\//<2745600>,' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
-           sed -i -e '/<2841600>,/c\//<2841600>,' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
-           sed -i -e '/<3187200>;/c\//<3187200>;' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
-           sed -i -e 's/qcom,mdss-pan-physical-width-dimension = <70>;$/qcom,mdss-pan-physical-width-dimension = <695>;/' arch/arm64/boot/dts/vendor/qcom/dsi-panel-l11r-38-08-0a-dsc-cmd.dtsi
-           sed -i -e 's/qcom,mdss-pan-physical-height-dimension = <155>;$/qcom,mdss-pan-physical-height-dimension = <1546>;/' arch/arm64/boot/dts/vendor/qcom/dsi-panel-l11r-38-08-0a-dsc-cmd.dtsi
-       
-       - name: Record build start time
-         id: build_start
-         run: |
-           echo "start_time=$(date +%s)" >> $GITHUB_OUTPUT
-           echo "start_date=$(TZ=Asia/Manila date +'%b %d, %Y %I:%M %p')" >> $GITHUB_OUTPUT
-       
-       - name: Build Kernel
-         run: |
-           if [[ "${{ github.event.inputs.CLANG_TOOLCHAIN }}" == "aosp clang" ]]; then
-             export PATH="$(pwd)/clang-aosp/bin:$PATH"
-           else
-             export PATH="$(pwd)/clang-neutron/bin:$PATH"
-           fi
-           export ARCH=arm64
-           export SUBARCH=ARM64
-           export KBUILD_BUILD_USER="Senseix"
-           export KBUILD_BUILD_HOST="Ubuntu"
-           cd kernel_tree
-           make O=out vendor/munch_defconfig
-           make O=out CC=clang -j$(nproc --all) CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1
-           if [[ "${{ matrix.type }}" == "original" ]]; then
-             mv out/arch/arm64/boot/dtbo.img ../munch-aosp-dtbo.img
-             mv out/arch/arm64/boot/dtb ../munch-normal-dtb
-             cp out/arch/arm64/boot/Image ../Image
-           elif [[ "${{ matrix.type }}" == "los" ]]; then
-             mv out/arch/arm64/boot/dtbo.img ../munch-aosp-ir-dtbo.img
-           elif [[ "${{ matrix.type }}" == "swift" ]]; then
-             mv out/arch/arm64/boot/dtb ../munch-slight-uc-dtb
-           else
-             mv out/arch/arm64/boot/dtbo.img ../munch-miui-dtbo.img
-             mv out/arch/arm64/boot/dtb ../munch-effcpu-dtb
-           fi
-
-       - name: Verify build artifacts
-         run: |
-           if [[ "${{ matrix.type }}" == "original" ]]; then
-             ls -la munch-aosp-dtbo.img munch-normal-dtb Image
-             if [[ ! -s munch-aosp-dtbo.img || ! -s munch-normal-dtb || ! -s Image ]]; then
-               echo "Error: One or more original build artifacts is missing or empty"
-               exit 1
-             fi
-           elif [[ "${{ matrix.type }}" == "los" ]]; then
-             ls -la munch-aosp-ir-dtbo.img
-             if [[ ! -s munch-aosp-ir-dtbo.img ]]; then
-               echo "Error: LOS DTBO is missing or empty"
-               exit 1
-             fi
-           elif [[ "${{ matrix.type }}" == "swift" ]]; then
-             ls -la munch-slight-uc-dtb
-             if [[ ! -s munch-slight-uc-dtb ]]; then
-               echo "Error: Swift DTB is missing or empty"
-               exit 1
-             fi
-           else
-             ls -la munch-miui-dtbo.img munch-effcpu-dtb
-             if [[ ! -s munch-miui-dtbo.img || ! -s munch-effcpu-dtb ]]; then
-               echo "Error: One or more modified build artifacts is missing or empty"
-               exit 1
-             fi
-           fi
-           
-       - name: Record build end time
-         id: build_end
-         run: |
-           end_time=$(date +%s)
-           start_time=${{ steps.build_start.outputs.start_time }}
-           build_duration=$((end_time - start_time))
-           echo "end_time=$end_time" >> $GITHUB_OUTPUT
-           echo "build_duration=$build_duration" >> $GITHUB_OUTPUT
-       
-       - name: Upload Kernel Artifacts
-         uses: actions/upload-artifact@v4
-         with:
-           name: kernel-1-${{ matrix.type }}
-           path: |
-             munch-aosp-dtbo.img
-             munch-aosp-ir-dtbo.img
-             munch-miui-dtbo.img
-             munch-normal-dtb
-             munch-slight-uc-dtb
-             munch-effcpu-dtb
-             Image
-             
-       - name: Save build metrics
-         if: matrix.type == 'original'
-         run: |
-           mkdir -p /tmp/build-metrics
-           echo "${{ steps.build_start.outputs.start_date }}" > /tmp/build-metrics/start-date-1
-           echo "${{ steps.build_end.outputs.build_duration }}" > /tmp/build-metrics/duration-1
-
-           if [[ "${{ github.event.inputs.USE_LTO_THIN }}" == "true" ]]; then
-             echo "LTO: THIN" > /tmp/build-metrics/lto-config-1
-           else
-             echo "LTO: FULL" > /tmp/build-metrics/lto-config-1
-           fi
-           echo "CLANG: ${{ github.event.inputs.CLANG_TOOLCHAIN }}" >> /tmp/build-metrics/lto-config-1
-       
-       - name: Upload build metrics
-         if: matrix.type == 'original'
-         uses: actions/upload-artifact@v4
-         with:
-           name: build-metrics-1
-           path: /tmp/build-metrics/
-
-   build_kernel_2:
-     needs: determine_build_targets
-     if: needs.determine_build_targets.outputs.build_kernel_2 == 'true'
-     strategy:
-       matrix:
-         type: [original, los, modified, swift]
-     runs-on: ubuntu-latest
-     env:
-       UPLOAD_TO_RELEASE: false
-       KERNEL_VARIANT: NEXT
- 
-     steps:
-       - name: Install Dependencies
-         run: |
-           sudo apt install flex libncurses6
-           # Install zstd if using neutron clang
-           if [[ "${{ github.event.inputs.CLANG_TOOLCHAIN }}" == "neutron clang" ]]; then
-             sudo apt install zstd
-           fi
- 
-       - name: Cache Clang toolchain
-         uses: actions/cache@v3
-         id: cache-clang
-         with:
-           path: ${{ github.event.inputs.CLANG_TOOLCHAIN == 'aosp clang' && 'clang-aosp' || 'clang-neutron' }}
-           key: ${{ github.event.inputs.CLANG_TOOLCHAIN }}-${{ runner.os }}-${{ github.event.inputs.CLANG_TOOLCHAIN == 'aosp clang' && 'r547379' || '10032024-v1' }}
-           restore-keys: |
-             ${{ github.event.inputs.CLANG_TOOLCHAIN }}-${{ runner.os }}-
-             ${{ github.event.inputs.CLANG_TOOLCHAIN }}-
-
-       - name: Download & Extract Clang (If not cached)
-         if: steps.cache-clang.outputs.cache-hit != 'true'
-         run: |
-           if [[ "${{ github.event.inputs.CLANG_TOOLCHAIN }}" == "aosp clang" ]]; then
-             wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r547379.tar.gz -O clang.tar.gz
-             mkdir -p clang-aosp
-             tar -xf clang.tar.gz -C clang-aosp
-           else
-             wget https://github.com/Neutron-Toolchains/clang-build-catalogue/releases/download/10032024/neutron-clang-10032024.tar.zst -O clang.tar.zst
-             mkdir -p clang-neutron
-             unzstd -d clang.tar.zst
-             tar -xf clang.tar -C clang-neutron
-           fi
-           
-       - name: Set Kernel Environment Variables
-         run: |
-           echo "KERNEL_TREE=${{ github.event.inputs.KERNEL_TREE_1 }}" >> $GITHUB_ENV
-           echo "KERNEL_TREE_BRANCH=${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" >> $GITHUB_ENV
-           echo "CLANG_TOOLCHAIN=${{ github.event.inputs.CLANG_TOOLCHAIN }}" >> $GITHUB_ENV
-           
-       - name: Extract Repository Owner and Name
-         id: repo-info
-         run: |
-           if [[ "${{ github.event.inputs.KERNEL_TREE_1 }}" =~ github.com/([^/]+)/([^/]+) ]]; then
-             REPO_OWNER="${BASH_REMATCH[1]}"
-             REPO_NAME="${BASH_REMATCH[2]}"
-             echo "repository=${REPO_OWNER}/${REPO_NAME}" >> $GITHUB_OUTPUT
-             echo "Using repository: ${REPO_OWNER}/${REPO_NAME}"
-           else
-             echo "::error::Invalid GitHub repository URL format"
-             exit 1
-           fi
-           
-       - name: Checkout Kernel
-         uses: actions/checkout@v4
-         with:
-           repository: ${{ steps.repo-info.outputs.repository }}
-           ref: ${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}
-           path: kernel_tree
-           fetch-depth: 1
- 
-       - name: Kernel Version
-         run: |
-           cd kernel_tree
-           if [[ "${{ github.event.inputs.CUSTOM_SED }}" != "-FusionX" ]]; then
-             sed -i -e 's/CONFIG_LOCALVERSION="-FusionX"/CONFIG_LOCALVERSION="${{ github.event.inputs.CUSTOM_SED }}"/' arch/arm64/configs/vendor/munch_defconfig
-           fi
-           
-       - name: Change LTO Configuration to THIN
-         if: ${{ github.event.inputs.USE_LTO_THIN == 'true' }}
-         run: |
-           cd kernel_tree
-           echo "Changing LTO configuration from FULL to THIN..."
-           sed -i -e '
-           /CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN=y/c\CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN=y
-           /CONFIG_HAS_LTO_CLANG=y/c\CONFIG_HAS_LTO_CLANG=y
-           /# CONFIG_LTO_NONE is not set/c\# CONFIG_LTO_NONE is not set
-           /CONFIG_LTO_CLANG_FULL=y/c\# CONFIG_LTO_CLANG_FULL is not set
-           /# CONFIG_LTO_CLANG_THIN is not set/c\CONFIG_LTO_CLANG_THIN=y
-           ' arch/arm64/configs/vendor/munch_defconfig
-           
-       - name: Apply Patches
-         run: |
-          cd kernel_tree
-          bash nextpatch.sh
-          
-          if [[ "${{ matrix.type }}" == "los" ]]; then
-            echo "Applying LOS-IR patch for the LOS build..."
-            patch -p1 -f < "0001-LOS-IR.patch"
+      - name: Set Clang Path
+        run: |
+          if [[ "${{ github.event.inputs.CLANG_TOOLCHAIN }}" == "aosp clang" ]]; then
+            echo "CLANG_PATH=$(pwd)/clang-aosp/bin" >> $GITHUB_ENV
+          else
+            echo "CLANG_PATH=$(pwd)/clang-neutron/bin" >> $GITHUB_ENV
           fi
 
-       - name: Apply Modifications (if swift build)
-         if: matrix.type == 'swift'
-         run: |
-           cd kernel_tree
-           sed -i -e '/<2841600>,/c\<2841600>;' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
-           sed -i -e '/<3187200>;/d' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
-           
-       - name: Apply Modifications (if modified build)
-         if: matrix.type == 'modified'
-         run: |
-           cd kernel_tree
-           sed -i -e '/<2553600>,/c\<2553600>;' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
-           sed -i -e '/<2649600>,/c\//<2649600>,' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
-           sed -i -e '/<2745600>,/c\//<2745600>,' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
-           sed -i -e '/<2841600>,/c\//<2841600>,' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
-           sed -i -e '/<3187200>;/c\//<3187200>;' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
-           sed -i -e 's/qcom,mdss-pan-physical-width-dimension = <70>;$/qcom,mdss-pan-physical-width-dimension = <695>;/' arch/arm64/boot/dts/vendor/qcom/dsi-panel-l11r-38-08-0a-dsc-cmd.dtsi
-           sed -i -e 's/qcom,mdss-pan-physical-height-dimension = <155>;$/qcom,mdss-pan-physical-height-dimension = <1546>;/' arch/arm64/boot/dts/vendor/qcom/dsi-panel-l11r-38-08-0a-dsc-cmd.dtsi
+      - name: Set Kernel Environment Variables
+        run: |
+          echo "KERNEL_TREE=${{ github.event.inputs.KERNEL_TREE_1 }}" >> $GITHUB_ENV
+          case "${{ matrix.branch }}" in
+            SUSFS) echo "KERNEL_TREE_BRANCH=${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" >> $GITHUB_ENV
+                   echo "BRANCH_NAME=SUSFS" >> $GITHUB_ENV ;;
+            NEXT) echo "KERNEL_TREE_BRANCH=${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" >> $GITHUB_ENV
+                  echo "BRANCH_NAME=NEXT" >> $GITHUB_ENV ;;
+            NOKSU) echo "KERNEL_TREE_BRANCH=${{ github.event.inputs.KERNEL_TREE_BRANCH_3 }}" >> $GITHUB_ENV
+                   echo "BRANCH_NAME=NOKSU" >> $GITHUB_ENV ;;
+          esac
 
-       - name: Record build start time
-         id: build_start
-         run: |
-           # Set timezone to PHT (UTC+8) and use 12-hour format with AM/PM
-           echo "start_time=$(date +%s)" >> $GITHUB_OUTPUT
-           echo "start_date=$(TZ=Asia/Manila date +'%b %d, %Y %I:%M %p')" >> $GITHUB_OUTPUT
-       
-       - name: Build Kernel
-         run: |
-           if [[ "${{ github.event.inputs.CLANG_TOOLCHAIN }}" == "aosp clang" ]]; then
-             export PATH="$(pwd)/clang-aosp/bin:$PATH"
-           else
-             export PATH="$(pwd)/clang-neutron/bin:$PATH"
-           fi
-           export ARCH=arm64
-           export SUBARCH=ARM64
-           export KBUILD_BUILD_USER="Senseix"
-           export KBUILD_BUILD_HOST="Ubuntu"
-           cd kernel_tree
-           make O=out vendor/munch_defconfig
-           make O=out CC=clang -j$(nproc --all) CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1
-           if [[ "${{ matrix.type }}" == "original" ]]; then
-             mv out/arch/arm64/boot/dtbo.img ../munch-aosp-dtbo.img
-             mv out/arch/arm64/boot/dtb ../munch-normal-dtb
-             cp out/arch/arm64/boot/Image ../Image
-           elif [[ "${{ matrix.type }}" == "los" ]]; then
-             mv out/arch/arm64/boot/dtbo.img ../munch-aosp-ir-dtbo.img
-           elif [[ "${{ matrix.type }}" == "swift" ]]; then
-             mv out/arch/arm64/boot/dtb ../munch-slight-uc-dtb
-           else
-             mv out/arch/arm64/boot/dtbo.img ../munch-miui-dtbo.img
-             mv out/arch/arm64/boot/dtb ../munch-effcpu-dtb
-           fi
+      - name: Checkout Kernel
+        run: |
+          git clone --depth=1 --branch "${{ env.KERNEL_TREE_BRANCH }}" "${{ env.KERNEL_TREE }}" kernel_tree
 
-       - name: Verify build artifacts
-         run: |
-           if [[ "${{ matrix.type }}" == "original" ]]; then
-             ls -la munch-aosp-dtbo.img munch-normal-dtb Image
-             if [[ ! -s munch-aosp-dtbo.img || ! -s munch-normal-dtb || ! -s Image ]]; then
-               echo "Error: One or more original build artifacts is missing or empty"
-               exit 1
-             fi
-           elif [[ "${{ matrix.type }}" == "los" ]]; then
-             ls -la munch-aosp-ir-dtbo.img
-             if [[ ! -s munch-aosp-ir-dtbo.img ]]; then
-               echo "Error: LOS DTBO is missing or empty"
-               exit 1
-             fi
-           elif [[ "${{ matrix.type }}" == "swift" ]]; then
-             ls -la munch-slight-uc-dtb
-             if [[ ! -s munch-slight-uc-dtb ]]; then
-               echo "Error: Swift DTB is missing or empty"
-               exit 1
-             fi
-           else
-             ls -la munch-miui-dtbo.img munch-effcpu-dtb
-             if [[ ! -s munch-miui-dtbo.img || ! -s munch-effcpu-dtb ]]; then
-               echo "Error: One or more modified build artifacts is missing or empty"
-               exit 1
-             fi
-           fi
-           
-       - name: Record build end time
-         id: build_end
-         run: |
-           end_time=$(date +%s)
-           start_time=${{ steps.build_start.outputs.start_time }}
-           build_duration=$((end_time - start_time))
-           echo "end_time=$end_time" >> $GITHUB_OUTPUT
-           echo "build_duration=$build_duration" >> $GITHUB_OUTPUT
-       
-       - name: Upload Kernel Artifacts
-         uses: actions/upload-artifact@v4
-         with:
-           name: kernel-2-${{ matrix.type }}
-           path: |
-             munch-aosp-dtbo.img
-             munch-aosp-ir-dtbo.img
-             munch-miui-dtbo.img
-             munch-normal-dtb
-             munch-slight-uc-dtb
-             munch-effcpu-dtb
-             Image
-             
-       - name: Save build metrics
-         if: matrix.type == 'original'
-         run: |
-           mkdir -p /tmp/build-metrics
-           echo "${{ steps.build_start.outputs.start_date }}" > /tmp/build-metrics/start-date-2
-           echo "${{ steps.build_end.outputs.build_duration }}" > /tmp/build-metrics/duration-2
- 
-           if [[ "${{ github.event.inputs.USE_LTO_THIN }}" == "true" ]]; then
-             echo "LTO: THIN" > /tmp/build-metrics/lto-config-2
-           else
-             echo "LTO: FULL" > /tmp/build-metrics/lto-config-2
-           fi
-           echo "CLANG: ${{ github.event.inputs.CLANG_TOOLCHAIN }}" >> /tmp/build-metrics/lto-config-2
-       
-       - name: Upload build metrics
-         if: matrix.type == 'original'
-         uses: actions/upload-artifact@v4
-         with:
-           name: build-metrics-2
-           path: /tmp/build-metrics/
-           
-   package_kernel_1:
-     needs: [determine_build_targets, build_kernel_1]
-     if: needs.determine_build_targets.outputs.build_kernel_1 == 'true'
-     runs-on: ubuntu-latest
- 
-     steps:
-       - name: Download Kernel Build Original
-         uses: actions/download-artifact@v4
-         with:
-           name: kernel-1-original
-           path: kernel-1-original
-     
-       - name: Download Kernel Build LOS
-         uses: actions/download-artifact@v4
-         with:
-           name: kernel-1-los
-           path: kernel-1-los
-     
-       - name: Download Kernel Build Modified
-         uses: actions/download-artifact@v4
-         with:
-           name: kernel-1-modified
-           path: kernel-1-modified
+      - name: Kernel Version
+        run: |
+          cd kernel_tree
+          if [[ "${{ github.event.inputs.CUSTOM_SED }}" != "-FusionX" ]]; then
+            sed -i -e 's/CONFIG_LOCALVERSION="-FusionX"/CONFIG_LOCALVERSION="${{ github.event.inputs.CUSTOM_SED }}"/' arch/arm64/configs/vendor/munch_defconfig
+          fi
 
-       - name: Download Kernel Build Swift
-         uses: actions/download-artifact@v4
-         with:
-           name: kernel-1-swift
-           path: kernel-1-swift
-           
-       - name: Download build metrics
-         uses: actions/download-artifact@v4
-         with:
-           name: build-metrics-1
-           path: build-metrics
-     
-       - name: Clone AnyKernel3
-         run: git clone --recursive --depth=1 ${{ github.event.inputs.ANYKERNEL_URL }} -b ${{ github.event.inputs.ANYKERNEL_BRANCH }} AnyKernel3-1
-     
-       - name: Move Kernel Files to AnyKernel3 and List themMore actions
-         run: |
-           # Move the files from each build directory to AnyKernel3
-           cp -v kernel-1-original/* AnyKernel3-1/ || true
-           cp -v kernel-1-los/* AnyKernel3-1/ || true
-           cp -v kernel-1-modified/* AnyKernel3-1/ || true
-           cp -v kernel-1-swift/* AnyKernel3-1/ || true
-              
-           # List all files in AnyKernel3 to verify
-           echo "Contents of AnyKernel3 directory:"
-           ls -la AnyKernel3-1/
-              
-           # Specifically check for DTBO files
-           echo "DTBO files in AnyKernel3:"
-           ls -la AnyKernel3-1/*dtbo.img || echo "No DTBO files found!"
+      - name: Change LTO Configuration to THIN
+        if: ${{ github.event.inputs.USE_LTO_THIN == 'true' }}
+        run: |
+          cd kernel_tree
+          echo "Changing LTO configuration from FULL to THIN..."
+          sed -i -e '
+          /CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN=y/c\CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN=y
+          /CONFIG_HAS_LTO_CLANG=y/c\CONFIG_HAS_LTO_CLANG=y
+          /# CONFIG_LTO_NONE is not set/c\# CONFIG_LTO_NONE is not set
+          /CONFIG_LTO_CLANG_FULL=y/c\# CONFIG_LTO_CLANG_FULL is not set
+          /# CONFIG_LTO_CLANG_THIN is not set/c\CONFIG_LTO_CLANG_THIN=y
+          ' arch/arm64/configs/vendor/munch_defconfig
+
+      - name: Remove cycle count
+        run: |
+          cd kernel_tree
+          sed -i '/case POWER_SUPPLY_PROP_CYCLE_COUNT:/,/break;/c\
+          \tcase POWER_SUPPLY_PROP_CYCLE_COUNT:\
+          \t#ifdef CONFIG_BATT_VERIFY_BY_DS28E16\
+          \t\tpval->intval = fg->maxim_cycle_count;\
+          \t#else\
+          \t\trc = get_cycle_count(chip->counter, &pval->intval);\
+          \t#endif\
+          \t\tbreak;' drivers/power/supply/qcom/qpnp-fg-gen4.c
+
+      - name: Apply Modifications (if swift build)
+        if: matrix.kernel == 5 || matrix.kernel == 6
+        run: |
+          cd kernel_tree
+          sed -i -e '/<2841600>,/c\<2841600>;' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
+          sed -i -e '/<3187200>;/d' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
+
+      - name: Revert to stock gpufreq
+        if: matrix.kernel == 3 || matrix.kernel == 4 || matrix.kernel == 6
+        run: |
+          cd kernel_tree
+          patch -p1 -f < "0001-stock-gpu-freq.patch"
+
+      - name: Apply Patches (SUSFS and NEXT only)
+        if: matrix.branch != 'NOKSU'
+        run: |
+          cd kernel_tree
+          bash nextpatch.sh
+
+      - name: Apply Modifications (if modified build)
+        if: matrix.kernel == 2 || matrix.kernel == 4
+        run: |
+          cd kernel_tree
+          sed -i -e '/<2553600>,/c\<2553600>;' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
+          sed -i -e '/<2649600>,/c\//<2649600>,' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
+          sed -i -e '/<2745600>,/c\//<2745600>,' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
+          sed -i -e '/<2841600>,/c\//<2841600>,' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
+          sed -i -e '/<3187200>;/c\//<3187200>;' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
+          sed -i -e 's/qcom,mdss-pan-physical-width-dimension = <70>;/qcom,mdss-pan-physical-width-dimension = <695>;/' arch/arm64/boot/dts/vendor/qcom/dsi-panel-l11r-38-08-0a-dsc-cmd.dtsi
+          sed -i -e 's/qcom,mdss-pan-physical-height-dimension = <155>;/qcom,mdss-pan-physical-height-dimension = <1546>;/' arch/arm64/boot/dts/vendor/qcom/dsi-panel-l11r-38-08-0a-dsc-cmd.dtsi
+
+      - name: Build Kernel
+        run: |
+          export PATH="${{ env.CLANG_PATH }}:$PATH"
+          export ARCH=arm64
+          export SUBARCH=ARM64
+          export KBUILD_BUILD_USER="senx"
+          export KBUILD_BUILD_HOST="ubuntu"
+          export KBUILD_BUILD_TIMESTAMP="$(TZ=UTC-7 date)"
+          cd kernel_tree
+          make O=out vendor/munch_defconfig
+          make O=out CC=clang -j$(nproc --all) CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1
+          if [[ "${{ matrix.kernel }}" == 1 ]]; then
+            cp out/arch/arm64/boot/Image ../Image
+            mv out/arch/arm64/boot/dtbo.img ../munch-aosp-dtbo.img
+            mv out/arch/arm64/boot/dtb.img ../munch-normal-dtb
+          elif [[ "${{ matrix.kernel }}" == 2 ]]; then
+            mv out/arch/arm64/boot/dtbo.img ../munch-miui-dtbo.img
+            mv out/arch/arm64/boot/dtb.img ../munch-effcpu-dtb
+          elif [[ "${{ matrix.kernel }}" == 3 ]]; then
+            mv out/arch/arm64/boot/dtb.img ../munch-normal-gpustk-dtb
+          elif [[ "${{ matrix.kernel }}" == 4 ]]; then
+            mv out/arch/arm64/boot/dtb.img ../munch-effcpu-gpustk-dtb
+          elif [[ "${{ matrix.kernel }}" == 5 ]]; then
+            mv out/arch/arm64/boot/dtb.img ../munch-slightuc-dtb
+          elif [[ "${{ matrix.kernel }}" == 6 ]]; then
+            mv out/arch/arm64/boot/dtb.img ../munch-slightuc-gpustk-dtb
+          fi
+
+      # Upload Image separately (shared across all kernels for each branch)
+      - name: Upload Kernel Base Image
+        uses: actions/upload-artifact@v4
+        if: matrix.kernel == 1
+        with:
+          name: kernel-${{ matrix.branch }}-base
+          path: Image
+
+      # Upload kernel-specific artifacts
+      - name: Upload Kernel Artifacts - Kernel 1
+        uses: actions/upload-artifact@v4
+        if: matrix.kernel == 1
+        with:
+          name: kernel-part-${{ matrix.branch }}-1-addon
+          path: |
+            munch-aosp-dtbo.img
+            munch-normal-dtb
+
+      - name: Upload Kernel Artifacts - Kernel 2
+        uses: actions/upload-artifact@v4
+        if: matrix.kernel == 2
+        with:
+          name: kernel-part-${{ matrix.branch }}-2-addon
+          path: |
+            munch-miui-dtbo.img
+            munch-effcpu-dtb
+
+      - name: Upload Kernel Artifacts - Kernel 3
+        uses: actions/upload-artifact@v4
+        if: matrix.kernel == 3
+        with:
+          name: kernel-part-${{ matrix.branch }}-3-addon
+          path: |
+            munch-normal-gpustk-dtb
+
+      - name: Upload Kernel Artifacts - Kernel 4
+        uses: actions/upload-artifact@v4
+        if: matrix.kernel == 4
+        with:
+          name: kernel-part-${{ matrix.branch }}-4-addon
+          path: |
+            munch-effcpu-gpustk-dtb
+
+      - name: Upload Kernel Artifacts - Kernel 5
+        uses: actions/upload-artifact@v4
+        if: matrix.kernel == 5
+        with:
+          name: kernel-part-${{ matrix.branch }}-5-addon
+          path: |
+            munch-slightuc-dtb
+
+      - name: Upload Kernel Artifacts - Kernel 6
+        uses: actions/upload-artifact@v4
+        if: matrix.kernel == 6
+        with:
+          name: kernel-part-${{ matrix.branch }}-6-addon
+          path: |
+            munch-slightuc-gpustk-dtb
+
+  package_anykernel:
+    needs: build
+    strategy:
+      matrix:
+        branch: [SUSFS, NEXT, NOKSU]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download Kernel Base Image
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-${{ matrix.branch }}-base
+          path: kernel-${{ matrix.branch }}-base
+
+      - name: Download Kernel Build Addon 1
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-part-${{ matrix.branch }}-1-addon
+          path: kernel-part-${{ matrix.branch }}-1-addon
+
+      - name: Download Kernel Build Addon 2
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-part-${{ matrix.branch }}-2-addon
+          path: kernel-part-${{ matrix.branch }}-2-addon
+
+      - name: Download Kernel Build Addon 3
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-part-${{ matrix.branch }}-3-addon
+          path: kernel-part-${{ matrix.branch }}-3-addon
+
+      - name: Download Kernel Build Addon 4
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-part-${{ matrix.branch }}-4-addon
+          path: kernel-part-${{ matrix.branch }}-4-addon
+
+      - name: Download Kernel Build Addon 5
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-part-${{ matrix.branch }}-5-addon
+          path: kernel-part-${{ matrix.branch }}-5-addon
+
+      - name: Download Kernel Build Addon 6
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-part-${{ matrix.branch }}-6-addon
+          path: kernel-part-${{ matrix.branch }}-6-addon
+
+      - name: Clone AnyKernel3
+        run: git clone --recursive --depth=1 ${{ github.event.inputs.ANYKERNEL_URL }} -b fusionX AnyKernel3-${{ matrix.branch }}
+
+      - name: Move Kernel Files to AnyKernel3
+        run: |
+          mv kernel-${{ matrix.branch }}-base/* AnyKernel3-${{ matrix.branch }}/
+          mv kernel-part-${{ matrix.branch }}-1-addon/* AnyKernel3-${{ matrix.branch }}/
+          mv kernel-part-${{ matrix.branch }}-2-addon/* AnyKernel3-${{ matrix.branch }}/
+          mv kernel-part-${{ matrix.branch }}-3-addon/* AnyKernel3-${{ matrix.branch }}/
+          mv kernel-part-${{ matrix.branch }}-4-addon/* AnyKernel3-${{ matrix.branch }}/
+          mv kernel-part-${{ matrix.branch }}-5-addon/* AnyKernel3-${{ matrix.branch }}/
+          mv kernel-part-${{ matrix.branch }}-6-addon/* AnyKernel3-${{ matrix.branch }}/
+
+      - name: Define ZIP Name
+        run: |
+          # Set Manila timezone and get date
+          export TZ='Asia/Manila'
+          COMPILED_DATE=$(date +%Y%m%d)
+          echo "ZIP_NAME=[FusionX-${{ matrix.branch }}]-${{ github.event.inputs.VERSION }}-$COMPILED_DATE" >> $GITHUB_ENV
+          echo "KERNEL_TYPE=${{ matrix.branch }}" >> $GITHUB_ENV
+
+      - name: Create ZIP file
+        run: |
+          cd AnyKernel3-${{ matrix.branch }}
+          zip -r9 ../${{ env.ZIP_NAME }}.zip * -x .git* .github*
+
+      - name: Upload Flashable Kernel Zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ZIP_NAME }}
+          path: ${{ env.ZIP_NAME }}.zip
+
+  telegram_notification:
+    needs: package_anykernel
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Download all ZIP artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Send Telegram notifications
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          CLANG_TOOLCHAIN: ${{ github.event.inputs.CLANG_TOOLCHAIN }}
+          LTO_CONFIG: ${{ github.event.inputs.USE_LTO_THIN }}
+          KERNEL_TREE_BRANCH_1: ${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}
+          KERNEL_TREE_BRANCH_2: ${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}
+          KERNEL_TREE_BRANCH_3: ${{ github.event.inputs.KERNEL_TREE_BRANCH_3 }}
+          BUILD_START_TIME: ${{ github.run_started_at }}
+          VERSION: ${{ github.event.inputs.VERSION }}
+        run: |
+          cat > send_telegram.py << 'EOF'
+          import os
+          import requests
+          import glob
+          from datetime import datetime, timezone, timedelta
+
+          def send_telegram_file(bot_token, chat_id, message, file_path):
+              url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
+              with open(file_path, 'rb') as f:
+                  files = {'document': f}
+                  data = {
+                      'chat_id': chat_id,
+                      'caption': message,
+                      'parse_mode': 'HTML'
+                  }
+                  response = requests.post(url, data=data, files=files)
+              return response.json()
+
+          def send_telegram_message(bot_token, chat_id, message):
+              url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+              data = {
+                  'chat_id': chat_id,
+                  'text': message,
+                  'parse_mode': 'HTML'
+              }
+              return requests.post(url, data=data).json()
+
+          # Environment variables
+          bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+          chat_id = os.environ.get('TELEGRAM_CHAT_ID')
+          clang = os.environ.get('CLANG_TOOLCHAIN', 'aosp')
+          lto = 'THIN' if os.environ.get('LTO_CONFIG') == 'true' else 'FULL'
+          build_start_time = os.environ.get('BUILD_START_TIME')
+          version = os.environ.get('VERSION', '2.x')
           
-       - name: Define ZIP Name
-         run: |
-           COMPILED_DATE=$(TZ=Asia/Manila date +%m%d)
-           LTO_CONFIG=$(cat build-metrics/lto-config-1 | head -n 1 | cut -d' ' -f2)
-           CLANG_TOOLCHAIN=$(cat build-metrics/lto-config-1 | tail -n 1 | cut -d' ' -f2)
-           
-           BASE_NAME="FusionX-SUSFS"
-
-           if [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "fx-base" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "fx-base" ]]; then
-             BUILD_TYPE="Personal Build"
-           elif [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "wip-susfs" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "wip-next" ]]; then
-             BUILD_TYPE="Beta Test"
-           elif [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "stable-susfs" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "stable-next" ]]; then
-             BUILD_TYPE="Stable Build"
-           else
-             BUILD_TYPE="Debug Build"
-           fi
-           
-            ZIP_NAME="[${BASE_NAME}]-${{ github.event.inputs.VERSION }}-${COMPILED_DATE}"
-           KERNEL_NAME="${BASE_NAME}"
-           
-           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
-           echo "KERNEL_NAME=$KERNEL_NAME" >> $GITHUB_ENV
-           echo "LTO_CONFIG=$LTO_CONFIG" >> $GITHUB_ENV
-           echo "CLANG_TOOLCHAIN=$CLANG_TOOLCHAIN" >> $GITHUB_ENV
-           echo "BUILD_TYPE=$BUILD_TYPE" >> $GITHUB_ENV
-           
-       - name: Package Kernel
-         run: |
-           cd AnyKernel3-1
-           zip -r9 ../${{ env.ZIP_NAME }}.zip *
-
-       - name: Read build metrics
-         id: read_metrics
-         run: |
-           start_date=$(cat build-metrics/start-date-1)
-           duration=$(cat build-metrics/duration-1)
-           echo "start_date=$start_date" >> $GITHUB_OUTPUT
-           echo "duration=$duration" >> $GITHUB_OUTPUT
-           
-           minutes=$((duration / 60))
-           seconds=$((duration % 60))
-           echo "build_time=${minutes}m ${seconds}s" >> $GITHUB_OUTPUT
-       
-       - name: Install Python dependencies
-         run: pip install requests python-telegram-bot
-       
-       - name: Send Telegram message
-         env:
-           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-           START_DATE: ${{ steps.read_metrics.outputs.start_date }}
-           BUILD_TIME: ${{ steps.read_metrics.outputs.build_time }}
-           BRANCH: ${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}
-         run: |
-           cat > send_telegram.py << 'EOF'
-           import os
-           import requests
-           
-           def send_telegram_message(bot_token, chat_id, message, file_path):
-               url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
-               
-               message_html = message
-               
-               files = {
-                   'document': open(file_path, 'rb')
-               }
-               
-               data = {
-                   'chat_id': chat_id,
-                   'caption': message_html,
-                   'parse_mode': 'HTML'
-               }
-               
-               response = requests.post(url, data=data, files=files)
-               return response.json()
-           
-           bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
-           chat_id = os.environ.get('TELEGRAM_CHAT_ID')
-           kernel_name = os.environ.get('KERNEL_NAME')
-           start_date = os.environ.get('START_DATE')
-           build_time = os.environ.get('BUILD_TIME')
-           branch = os.environ.get('BRANCH')
-           lto_config = os.environ.get('LTO_CONFIG')
-           clang_toolchain = os.environ.get('CLANG_TOOLCHAIN')
-           build_type = os.environ.get('BUILD_TYPE')
-           zip_name = os.environ.get('ZIP_NAME')
-           
-           message = f"""<pre>
-           ==============================
-           <b> {kernel_name} Build Complete! </b>
-           ==============================
-           <b> Date:</b>        {start_date}
-           <b> Duration:</b>    {build_time}
-           <b> Codename:</b>    munch
-           <b> Branch:</b>      {branch}
-           <b> Lto:</b>         {lto_config}
-           <b> Clang:</b>       {clang_toolchain}
-           <b> Build Type:</b>  {build_type}
-           ==============================
-           </pre>"""
-       
-           # Send the message with file
-           result = send_telegram_message(bot_token, chat_id, message, f"{zip_name}.zip")
-           print(result)
-       
-           if not result.get('ok'):
-               print(f"Error sending Telegram message: {result}")
-               exit(1)
-           EOF
-       
-           python3 send_telegram.py
- 
-       - name: Upload Flashable Kernel Zip
-         uses: actions/upload-artifact@v4
-         with:
-           name: ${{ env.ZIP_NAME }}
-           path: ${{ env.ZIP_NAME }}.zip
-
-   package_kernel_2:
-     needs: [determine_build_targets, build_kernel_2]
-     if: needs.determine_build_targets.outputs.build_kernel_2 == 'true'
-     runs-on: ubuntu-latest
- 
-     steps:
-       - name: Download Kernel Build Original
-         uses: actions/download-artifact@v4
-         with:
-           name: kernel-2-original
-           path: kernel-2-original
-     
-       - name: Download Kernel Build LOS
-         uses: actions/download-artifact@v4
-         with:
-           name: kernel-2-los
-           path: kernel-2-los
-     
-       - name: Download Kernel Build Modified
-         uses: actions/download-artifact@v4
-         with:
-           name: kernel-2-modified
-           path: kernel-2-modified
-
-       - name: Download Kernel Build SwiftAdd commentMore actions
-         uses: actions/download-artifact@v4
-         with:
-           name: kernel-2-swift
-           path: kernel-2-swift
-           
-       - name: Download build metrics
-         uses: actions/download-artifact@v4
-         with:
-           name: build-metrics-2
-           path: build-metrics
-     
-       - name: Clone AnyKernel3
-         run: git clone --recursive --depth=1 ${{ github.event.inputs.ANYKERNEL_URL }} -b ${{ github.event.inputs.ANYKERNEL_BRANCH }} AnyKernel3-2
-     
-       - name: Move Kernel Files to AnyKernel3 and List themMore actions
-         run: |
-           # Move the files from each build directory to AnyKernel3
-           cp -v kernel-2-original/* AnyKernel3-2/ || true
-           cp -v kernel-2-los/* AnyKernel3-2/ || true
-           cp -v kernel-2-modified/* AnyKernel3-2/ || true
-           cp -v kernel-2-swift/* AnyKernel3-2/ || true
-              
-           # List all files in AnyKernel3 to verify
-           echo "Contents of AnyKernel3 directory:"
-           ls -la AnyKernel3-2/
-              
-           # Specifically check for DTBO files
-           echo "DTBO files in AnyKernel3:"
-           ls -la AnyKernel3-2/*dtbo.img || echo "No DTBO files found!"
+          # Get Manila timezone build date
+          manila_tz = timezone(timedelta(hours=8))
+          build_date = datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')
           
-       - name: Define ZIP Name
-         run: |
-            COMPILED_DATE=$(TZ=Asia/Manila date +%m%d)
-            LTO_CONFIG=$(cat build-metrics/lto-config-2 | head -n 1 | cut -d' ' -f2)
-            CLANG_TOOLCHAIN=$(cat build-metrics/lto-config-2 | tail -n 1 | cut -d' ' -f2)
-            
-            BASE_NAME="FusionX-NEXT"
- 
-            if [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "fx-base" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "fx-base" ]]; then
-              BUILD_TYPE="Personal Build"
-            elif [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "wip-susfs" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "wip-next" ]]; then
-              BUILD_TYPE="Beta Test"
-            elif [[ "${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" == "stable-susfs" && "${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" == "stable-next" ]]; then
-              BUILD_TYPE="Stable Build"
-            else
-              BUILD_TYPE="Debug Build"
-            fi
-            
-            ZIP_NAME="[${BASE_NAME}]-${{ github.event.inputs.VERSION }}-${COMPILED_DATE}"
-            KERNEL_NAME="${BASE_NAME}"
-            
-            echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
-            echo "KERNEL_NAME=$KERNEL_NAME" >> $GITHUB_ENV
-            echo "LTO_CONFIG=$LTO_CONFIG" >> $GITHUB_ENV
-            echo "CLANG_TOOLCHAIN=$CLANG_TOOLCHAIN" >> $GITHUB_ENV
-            echo "BUILD_TYPE=$BUILD_TYPE" >> $GITHUB_ENV
-            
-       - name: Package Kernel
-         run: |
-            cd AnyKernel3-2
-            zip -r9 ../${{ env.ZIP_NAME }}.zip *
- 
-       - name: Read build metrics
-         id: read_metrics
-         run: |
-            start_date=$(cat build-metrics/start-date-2)
-            duration=$(cat build-metrics/duration-2)
-            echo "start_date=$start_date" >> $GITHUB_OUTPUT
-            echo "duration=$duration" >> $GITHUB_OUTPUT
-            
-            minutes=$((duration / 60))
-            seconds=$((duration % 60))
-            echo "build_time=${minutes}m ${seconds}s" >> $GITHUB_OUTPUT
-        
-       - name: Install Python dependencies
-         run: pip install requests python-telegram-bot
-        
-       - name: Send Telegram message
-         env:
-           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-           START_DATE: ${{ steps.read_metrics.outputs.start_date }}
-           BUILD_TIME: ${{ steps.read_metrics.outputs.build_time }}
-           BRANCH: ${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}
-         run: |
-           cat > send_telegram.py << 'EOF'
-           import os
-           import requests
-           
-           def send_telegram_message(bot_token, chat_id, message, file_path):
-               url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
-               
-               message_html = message
-               
-               files = {
-                   'document': open(file_path, 'rb')
-               }
-               
-               data = {
-                   'chat_id': chat_id,
-                   'caption': message_html,
-                   'parse_mode': 'HTML'
-               }
-               
-               response = requests.post(url, data=data, files=files)
-               return response.json()
-           
-           # Get environment variables
-           bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
-           chat_id = os.environ.get('TELEGRAM_CHAT_ID')
-           kernel_name = os.environ.get('KERNEL_NAME')
-           start_date = os.environ.get('START_DATE')
-           build_time = os.environ.get('BUILD_TIME')
-           branch = os.environ.get('BRANCH')
-           lto_config = os.environ.get('LTO_CONFIG')
-           clang_toolchain = os.environ.get('CLANG_TOOLCHAIN')
-           build_type = os.environ.get('BUILD_TYPE')
-           zip_name = os.environ.get('ZIP_NAME')
-           
-           message = f"""<pre>
-           ==============================
-           <b> {kernel_name} Build Complete! </b>
-           ==============================
-           <b> Date:</b>        {start_date}
-           <b> Duration:</b>    {build_time}
-           <b> Codename:</b>    munch
-           <b> Branch:</b>      {branch}
-           <b> Lto:</b>         {lto_config}
-           <b> Clang:</b>       {clang_toolchain}
-           <b> Build Type:</b>  {build_type}
-           ==============================
-           </pre>"""
-       
-           # Send the message with file
-           result = send_telegram_message(bot_token, chat_id, message, f"{zip_name}.zip")
-           print(result)
-       
-           if not result.get('ok'):
-               print(f"Error sending Telegram message: {result}")
-               exit(1)
-           EOF
-       
-           python3 send_telegram.py
- 
-       - name: Upload Flashable Kernel Zip
-         uses: actions/upload-artifact@v4
-         with:
-            name: ${{ env.ZIP_NAME }}
-            path: ${{ env.ZIP_NAME }}.zip
+          # Find ZIP files
+          zip_files = glob.glob('artifacts/**/*.zip', recursive=True)
+          
+          if not bot_token or not chat_id:
+              print("Missing Telegram credentials")
+              exit(1)
+              
+          if not zip_files:
+              send_telegram_message(bot_token, chat_id, "❌ <b>Build Failed!</b>")
+              exit(1)
+
+          # Send each file with combined message
+          for zip_file in zip_files:
+              file_name = os.path.basename(zip_file)
+              
+              # Extract branch info from filename and get actual branch name
+              if "SUSFS" in file_name:
+                  branch_info = os.environ.get('KERNEL_TREE_BRANCH_1', 'susfs1')
+                  build_type = "SUSFS"
+              elif "NEXT" in file_name:
+                  branch_info = os.environ.get('KERNEL_TREE_BRANCH_2', 'next1')
+                  build_type = "NEXT"
+              elif "NOKSU" in file_name:
+                  branch_info = os.environ.get('KERNEL_TREE_BRANCH_3', 'noksu1')
+                  build_type = "NOKSU"
+              else:
+                  branch_info = "unknown"
+                  build_type = "Unknown"
+              
+              caption = f"""<pre>
+            <b> FusionX Build Complete! </b>
+            ==============================
+            <b> Date:</b>        {build_date}
+            <b> Branch:</b>      {branch_info}
+            <b> Version:</b>     {version}
+            <b> Lto:</b>         {lto}
+            <b> Clang:</b>       {clang}
+            <b> Build Type:</b>  {build_type}
+            ==============================
+            </pre>"""
+              
+              try:
+                  result = send_telegram_file(bot_token, chat_id, caption, zip_file)
+                  if result.get('ok'):
+                      print(f"✅ Successfully sent {file_name}")
+                  else:
+                      print(f"❌ Failed to send {file_name}: {result}")
+              except Exception as e:
+                  print(f"❌ Error sending {file_name}: {str(e)}")
+
+          EOF
+
+          python3 send_telegram.py
