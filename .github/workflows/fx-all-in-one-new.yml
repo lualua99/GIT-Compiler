@@ -1,0 +1,486 @@
+name: FusionX-ALL-IN-ONE-2
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      KERNEL_TREE_1:
+        description: 'Kernel Tree'
+        default: 'https://github.com/SenseiiX/fusionX_sm8250.git'
+        required: true
+      KERNEL_TREE_BRANCH_1:
+        description: 'Kernel Tree Branch (SUSFS)'
+        default: 'wip-susfs'
+        required: false
+        type: choice
+        options:
+          - stable-susfs
+          - wip-susfs
+      KERNEL_TREE_BRANCH_2:
+        description: 'Kernel Tree Branch (NEXT)'
+        default: 'wip-next'
+        required: false
+        type: choice
+        options:
+          - stable-next
+          - wip-next
+      KERNEL_TREE_BRANCH_3:
+        description: 'Kernel Tree Branch (NOKSU)'
+        default: 'wip-noksu'
+        required: false
+        type: choice
+        options:
+          - stable-noksu
+          - wip-noksu
+      KERNEL_TREE_BRANCH_4:
+        description: 'Kernel Tree Branch (OCUV)'
+        default: 'ocuv'
+        required: false
+      VERSION:
+        description: 'Zip Version'
+        default: '2.x'
+        required: false
+      ANYKERNEL_URL:
+        description: 'AnyKernel Url (leave blank if you dont want AnyKernel)'
+        default: 'https://github.com/SenseiiX/AnyKernel3'
+        required: false
+      CUSTOM_SED:
+        description: 'Custom Kernel Version'
+        default: '-FusionX'
+        required: false
+      CLANG_TOOLCHAIN:
+        description: 'Clang toolchain selection'
+        default: 'aosp clang'
+        required: true
+        type: choice
+        options:
+        - neutron
+        - aosp clang
+      USE_LTO_THIN:
+        description: 'Use LTO THIN instead of FULL'
+        default: 'false'
+        required: false
+        type: boolean
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+
+          - branch: SUSFS
+            kernel: 3
+          - branch: SUSFS
+            kernel: 4
+          - branch: SUSFS
+            kernel: 6
+
+          - branch: NEXT
+            kernel: 3
+          - branch: NEXT
+            kernel: 4
+          - branch: NEXT
+            kernel: 6
+
+          - branch: NOKSU
+            kernel: 3
+          - branch: NOKSU
+            kernel: 4
+          - branch: NOKSU
+            kernel: 6
+
+          - branch: OCUV
+            kernel: 1
+          - branch: OCUV
+            kernel: 2
+          - branch: OCUV
+            kernel: 5
+
+    runs-on: ubuntu-latest
+    env:
+      UPLOAD_TO_RELEASE: false
+
+    steps:
+      - name: Install Dependencies
+        run: sudo apt install flex libncurses6
+
+      - name: Cache Clang Toolchain
+        id: cache-clang
+        uses: actions/cache@v4
+        with:
+          path: |
+            clang-neutron
+            clang-aosp
+          key: clang-toolchain-${{ github.event.inputs.CLANG_TOOLCHAIN }}-${{ hashFiles('**/clang-version') }}
+          restore-keys: |
+            clang-toolchain-${{ github.event.inputs.CLANG_TOOLCHAIN }}-
+
+      - name: Download & Extract Clang (If not cached)
+        if: steps.cache-clang.outputs.cache-hit != 'true'
+        run: |
+          if [[ "${{ github.event.inputs.CLANG_TOOLCHAIN }}" == "aosp clang" ]]; then
+            wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r547379.tar.gz -O clang.tar.gz
+            mkdir -p clang-aosp
+            tar -xf clang.tar.gz -C clang-aosp
+            echo "aosp-r547379" > clang-version
+          else
+            wget https://github.com/Neutron-Toolchains/clang-build-catalogue/releases/download/10032024/neutron-clang-10032024.tar.zst -O clang.tar.zst
+            mkdir -p clang-neutron
+            unzstd -d clang.tar.zst
+            tar -xf clang.tar -C clang-neutron
+            echo "neutron-10032024" > clang-version
+          fi
+
+      - name: Set Clang Path
+        run: |
+          if [[ "${{ github.event.inputs.CLANG_TOOLCHAIN }}" == "aosp clang" ]]; then
+            echo "CLANG_PATH=$(pwd)/clang-aosp/bin" >> $GITHUB_ENV
+          else
+            echo "CLANG_PATH=$(pwd)/clang-neutron/bin" >> $GITHUB_ENV
+          fi
+
+      - name: Set Kernel Environment Variables
+        run: |
+          echo "KERNEL_TREE=${{ github.event.inputs.KERNEL_TREE_1 }}" >> $GITHUB_ENV
+          case "${{ matrix.branch }}" in
+            SUSFS) echo "KERNEL_TREE_BRANCH=${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" >> $GITHUB_ENV
+                   echo "BRANCH_NAME=SUSFS" >> $GITHUB_ENV ;;
+            NEXT) echo "KERNEL_TREE_BRANCH=${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" >> $GITHUB_ENV
+                  echo "BRANCH_NAME=NEXT" >> $GITHUB_ENV ;;
+            NOKSU) echo "KERNEL_TREE_BRANCH=${{ github.event.inputs.KERNEL_TREE_BRANCH_3 }}" >> $GITHUB_ENV
+                   echo "BRANCH_NAME=NOKSU" >> $GITHUB_ENV ;;
+            OCUV) echo "KERNEL_TREE_BRANCH=${{ github.event.inputs.KERNEL_TREE_BRANCH_4 }}" >> $GITHUB_ENV
+                  echo "BRANCH_NAME=OCUV" >> $GITHUB_ENV ;;
+          esac
+
+      - name: Checkout Kernel
+        run: |
+          git clone --depth=1 --branch "${{ env.KERNEL_TREE_BRANCH }}" "${{ env.KERNEL_TREE }}" kernel_tree
+
+      - name: Kernel Version
+        run: |
+          cd kernel_tree
+          if [[ "${{ github.event.inputs.CUSTOM_SED }}" != "-FusionX" ]]; then
+            sed -i -e 's/CONFIG_LOCALVERSION="-FusionX"/CONFIG_LOCALVERSION="${{ github.event.inputs.CUSTOM_SED }}"/' arch/arm64/configs/vendor/munch_defconfig
+          fi
+
+      - name: Change LTO Configuration to THIN
+        if: ${{ github.event.inputs.USE_LTO_THIN == 'true' }}
+        run: |
+          cd kernel_tree
+          echo "Changing LTO configuration from FULL to THIN..."
+          sed -i -e '
+          /CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN=y/c\CONFIG_ARCH_SUPPORTS_LTO_CLANG_THIN=y
+          /CONFIG_HAS_LTO_CLANG=y/c\CONFIG_HAS_LTO_CLANG=y
+          /# CONFIG_LTO_NONE is not set/c\# CONFIG_LTO_NONE is not set
+          /CONFIG_LTO_CLANG_FULL=y/c\# CONFIG_LTO_CLANG_FULL is not set
+          /# CONFIG_LTO_CLANG_THIN is not set/c\CONFIG_LTO_CLANG_THIN=y
+          ' arch/arm64/configs/vendor/munch_defconfig
+
+      - name: Remove cycle count
+        run: |
+          cd kernel_tree
+          sed -i '/case POWER_SUPPLY_PROP_CYCLE_COUNT:/,/break;/c\
+          \tcase POWER_SUPPLY_PROP_CYCLE_COUNT:\
+          \t#ifdef CONFIG_BATT_VERIFY_BY_DS28E16\
+          \t\tpval->intval = fg->maxim_cycle_count;\
+          \t#else\
+          \t\trc = get_cycle_count(chip->counter, &pval->intval);\
+          \t#endif\
+          \t\tbreak;' drivers/power/supply/qcom/qpnp-fg-gen4.c
+
+      - name: Apply Modifications (if swift build)
+        if: matrix.kernel == 5 || matrix.kernel == 6
+        run: |
+          cd kernel_tree
+          sed -i -e '/<2841600>,/c\<2841600>;' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
+          sed -i -e '/<3187200>;/d' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
+
+      - name: Revert to stock gpufreq
+        if: (matrix.kernel == 3 || matrix.kernel == 4 || matrix.kernel == 6) && matrix.branch != 'OCUV'
+        run: |
+          cd kernel_tree
+          patch -p1 -f < "0001-stock-gpu-freq.patch"
+
+      - name: Apply Patches (SUSFS and NEXT only)
+        if: matrix.branch != 'NOKSU' && matrix.branch != 'OCUV'
+        run: |
+          cd kernel_tree
+          bash nextpatch.sh
+
+      - name: Apply Modifications (if modified build)
+        if: matrix.kernel == 2 || matrix.kernel == 4
+        run: |
+          cd kernel_tree
+          sed -i -e '/<2553600>,/c\<2553600>;' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
+          sed -i -e '/<2649600>,/c\//<2649600>,' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
+          sed -i -e '/<2745600>,/c\//<2745600>,' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
+          sed -i -e '/<2841600>,/c\//<2841600>,' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
+          sed -i -e '/<3187200>;/c\//<3187200>;' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
+          sed -i -e 's/qcom,mdss-pan-physical-width-dimension = <70>;/qcom,mdss-pan-physical-width-dimension = <695>;/' arch/arm64/boot/dts/vendor/qcom/dsi-panel-l11r-38-08-0a-dsc-cmd.dtsi
+          sed -i -e 's/qcom,mdss-pan-physical-height-dimension = <155>;/qcom,mdss-pan-physical-height-dimension = <1546>;/' arch/arm64/boot/dts/vendor/qcom/dsi-panel-l11r-38-08-0a-dsc-cmd.dtsi
+
+      - name: Build Kernel
+        run: |
+          export PATH="${{ env.CLANG_PATH }}:$PATH"
+          export ARCH=arm64
+          export SUBARCH=ARM64
+          export KBUILD_BUILD_USER="senx"
+          export KBUILD_BUILD_HOST="ubuntu"
+          export KBUILD_BUILD_TIMESTAMP="$(TZ=UTC-7 date)"
+          cd kernel_tree
+          make O=out vendor/munch_defconfig
+          make O=out CC=clang -j$(nproc --all) CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1
+          
+          if [[ "${{ matrix.branch }}" == "OCUV" ]]; then
+            if [[ "${{ matrix.kernel }}" == 1 ]]; then
+              mv out/arch/arm64/boot/dtbo.img ../munch-aosp-dtbo.img
+              mv out/arch/arm64/boot/dtb.img ../munch-normal-dtb
+            elif [[ "${{ matrix.kernel }}" == 2 ]]; then
+              mv out/arch/arm64/boot/dtbo.img ../munch-miui-dtbo.img
+              mv out/arch/arm64/boot/dtb.img ../munch-effcpu-dtb
+            elif [[ "${{ matrix.kernel }}" == 5 ]]; then
+              mv out/arch/arm64/boot/dtb.img ../munch-slightuc-dtb
+            fi
+          else
+            if [[ "${{ matrix.kernel }}" == 3 ]]; then
+              cp out/arch/arm64/boot/Image ../Image
+              mv out/arch/arm64/boot/dtb.img ../munch-normal-gpustk-dtb
+            elif [[ "${{ matrix.kernel }}" == 4 ]]; then
+              mv out/arch/arm64/boot/dtb.img ../munch-effcpu-gpustk-dtb
+            elif [[ "${{ matrix.kernel }}" == 6 ]]; then
+              mv out/arch/arm64/boot/dtb.img ../munch-slightuc-gpustk-dtb
+            fi
+          fi
+
+      - name: Upload OCUV Kernel 1 Components
+        uses: actions/upload-artifact@v4
+        if: matrix.kernel == 1 && matrix.branch == 'OCUV'
+        with:
+          name: ocuv-kernel-1-components
+          path: |
+            munch-aosp-dtbo.img
+            munch-normal-dtb
+
+      - name: Upload OCUV Kernel 2 Components
+        uses: actions/upload-artifact@v4
+        if: matrix.kernel == 2 && matrix.branch == 'OCUV'
+        with:
+          name: ocuv-kernel-2-components
+          path: |
+            munch-miui-dtbo.img
+            munch-effcpu-dtb
+
+      - name: Upload OCUV Kernel 5 Components
+        uses: actions/upload-artifact@v4
+        if: matrix.kernel == 5 && matrix.branch == 'OCUV'
+        with:
+          name: ocuv-kernel-5-components
+          path: |
+            munch-slightuc-dtb
+
+      - name: Upload Branch Kernel 3 (with Image)
+        uses: actions/upload-artifact@v4
+        if: matrix.kernel == 3 && matrix.branch != 'OCUV'
+        with:
+          name: kernel-${{ matrix.branch }}-3-base
+          path: |
+            Image
+            munch-normal-gpustk-dtb
+
+      - name: Upload Branch Kernel 4
+        uses: actions/upload-artifact@v4
+        if: matrix.kernel == 4 && matrix.branch != 'OCUV'
+        with:
+          name: kernel-${{ matrix.branch }}-4
+          path: |
+            munch-effcpu-gpustk-dtb
+
+      - name: Upload Branch Kernel 6
+        uses: actions/upload-artifact@v4
+        if: matrix.kernel == 6 && matrix.branch != 'OCUV'
+        with:
+          name: kernel-${{ matrix.branch }}-6
+          path: |
+            munch-slightuc-gpustk-dtb
+
+  package_anykernel:
+    needs: build
+    strategy:
+      matrix:
+        branch: [SUSFS, NEXT, NOKSU]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download OCUV Kernel 1 Components
+        uses: actions/download-artifact@v4
+        with:
+          name: ocuv-kernel-1-components
+          path: ocuv-kernel-1
+
+      - name: Download OCUV Kernel 2 Components
+        uses: actions/download-artifact@v4
+        with:
+          name: ocuv-kernel-2-components
+          path: ocuv-kernel-2
+
+      - name: Download OCUV Kernel 5 Components
+        uses: actions/download-artifact@v4
+        with:
+          name: ocuv-kernel-5-components
+          path: ocuv-kernel-5
+
+      - name: Download Branch Kernel 3 (with Image)
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-${{ matrix.branch }}-3-base
+          path: branch-kernel-3
+
+      - name: Download Branch Kernel 4
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-${{ matrix.branch }}-4
+          path: branch-kernel-4
+
+      - name: Download Branch Kernel 6
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-${{ matrix.branch }}-6
+          path: branch-kernel-6
+
+      - name: Clone AnyKernel3
+        run: git clone --recursive --depth=1 ${{ github.event.inputs.ANYKERNEL_URL }} -b fusionX AnyKernel3-${{ matrix.branch }}
+
+      - name: Combine All Kernel Components
+        run: |
+          cp branch-kernel-3/* AnyKernel3-${{ matrix.branch }}/
+          cp ocuv-kernel-1/* AnyKernel3-${{ matrix.branch }}/
+          cp ocuv-kernel-2/* AnyKernel3-${{ matrix.branch }}/
+          cp ocuv-kernel-5/* AnyKernel3-${{ matrix.branch }}/
+          cp branch-kernel-4/* AnyKernel3-${{ matrix.branch }}/
+          cp branch-kernel-6/* AnyKernel3-${{ matrix.branch }}/
+
+      - name: Define ZIP Name
+        run: |
+          export TZ='Asia/Manila'
+          COMPILED_DATE=$(date +%Y%m%d)
+          echo "ZIP_NAME=[FusionX-${{ matrix.branch }}]-${{ github.event.inputs.VERSION }}-$COMPILED_DATE" >> $GITHUB_ENV
+          echo "KERNEL_TYPE=${{ matrix.branch }}" >> $GITHUB_ENV
+
+      - name: Create ZIP file
+        run: |
+          cd AnyKernel3-${{ matrix.branch }}
+          zip -r9 ../${{ env.ZIP_NAME }}.zip * -x .git* .github*
+
+      - name: Upload Flashable Kernel Zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ZIP_NAME }}
+          path: ${{ env.ZIP_NAME }}.zip
+
+  telegram_notification:
+    needs: package_anykernel
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Download all ZIP artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Send Telegram notifications
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          CLANG_TOOLCHAIN: ${{ github.event.inputs.CLANG_TOOLCHAIN }}
+          LTO_CONFIG: ${{ github.event.inputs.USE_LTO_THIN }}
+          KERNEL_TREE_BRANCH_1: ${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}
+          KERNEL_TREE_BRANCH_2: ${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}
+          KERNEL_TREE_BRANCH_3: ${{ github.event.inputs.KERNEL_TREE_BRANCH_3 }}
+          BUILD_START_TIME: ${{ github.run_started_at }}
+          VERSION: ${{ github.event.inputs.VERSION }}
+        run: |
+          cat > send_telegram.py << 'EOF'
+          import os
+          import requests
+          import glob
+          from datetime import datetime, timezone, timedelta
+
+          def send_telegram_file(bot_token, chat_id, message, file_path):
+              url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
+              with open(file_path, 'rb') as f:
+                  files = {'document': f}
+                  data = {
+                      'chat_id': chat_id,
+                      'caption': message,
+                      'parse_mode': 'HTML'
+                  }
+                  response = requests.post(url, data=data, files=files)
+              return response.json()
+
+          def send_telegram_message(bot_token, chat_id, message):
+              url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+              data = {
+                  'chat_id': chat_id,
+                  'text': message,
+                  'parse_mode': 'HTML'
+              }
+              return requests.post(url, data=data).json()
+          bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+          chat_id = os.environ.get('TELEGRAM_CHAT_ID')
+          clang = os.environ.get('CLANG_TOOLCHAIN', 'aosp')
+          lto = 'THIN' if os.environ.get('LTO_CONFIG') == 'true' else 'FULL'
+          build_start_time = os.environ.get('BUILD_START_TIME')
+          version = os.environ.get('VERSION', '2.x')
+          manila_tz = timezone(timedelta(hours=8))
+          build_date = datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')
+          zip_files = glob.glob('artifacts/**/*.zip', recursive=True)
+          
+          if not bot_token or not chat_id:
+              print("Missing Telegram credentials")
+              exit(1)
+              
+          if not zip_files:
+              send_telegram_message(bot_token, chat_id, "❌ <b>Build Failed!</b>")
+              exit(1)
+
+          for zip_file in zip_files:
+              file_name = os.path.basename(zip_file)
+              
+              if "SUSFS" in file_name:
+                  branch_info = os.environ.get('KERNEL_TREE_BRANCH_1', 'susfs1')
+                  build_type = "SUSFS"
+              elif "NEXT" in file_name:
+                  branch_info = os.environ.get('KERNEL_TREE_BRANCH_2', 'next1')
+                  build_type = "NEXT"
+              elif "NOKSU" in file_name:
+                  branch_info = os.environ.get('KERNEL_TREE_BRANCH_3', 'noksu1')
+                  build_type = "NOKSU"
+              else:
+                  branch_info = "unknown"
+                  build_type = "Unknown"
+              
+              caption = f"""<pre>
+            <b> FusionX Build Complete! </b>
+            ==============================
+            <b> Date:</b>        {build_date}
+            <b> Branch:</b>      {branch_info}
+            <b> Version:</b>     {version}
+            <b> Lto:</b>         {lto}
+            <b> Clang:</b>       {clang}
+            <b> Build Type:</b>  {build_type}
+            ==============================
+            </pre>"""
+              
+              try:
+                  result = send_telegram_file(bot_token, chat_id, caption, zip_file)
+                  if result.get('ok'):
+                      print(f"✅ Successfully sent {file_name}")
+                  else:
+                      print(f"❌ Failed to send {file_name}: {result}")
+              except Exception as e:
+                  print(f"❌ Error sending {file_name}: {str(e)}")
+
+          EOF
+
+          python3 send_telegram.py
