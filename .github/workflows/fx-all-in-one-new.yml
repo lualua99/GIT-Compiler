@@ -5,7 +5,7 @@ on:
     inputs:
       KERNEL_TREE_1:
         description: 'Kernel Tree'
-        default: 'https://github.com/SenseiiX/fusionX_sm8250.git'
+        default: 'https://github.com/SenseiiX/fusionX_sm8250'
         required: true
       KERNEL_TREE_BRANCH_1:
         description: 'Kernel Tree Branch (SUSFS)'
@@ -31,10 +31,6 @@ on:
         options:
           - stable-noksu
           - wip-noksu
-      KERNEL_TREE_BRANCH_4:
-        description: 'Kernel Tree Branch (OCUV)'
-        default: 'ocuv'
-        required: false
       VERSION:
         description: 'Zip Version'
         default: '2.x'
@@ -49,51 +45,80 @@ on:
         required: false
       CLANG_TOOLCHAIN:
         description: 'Clang toolchain selection'
-        default: 'aosp clang'
+        default: 'aosp clang 20'
         required: true
         type: choice
         options:
         - neutron
-        - aosp clang
+        - aosp clang 20
+        - aosp clang 21
       USE_LTO_THIN:
         description: 'Use LTO THIN instead of FULL'
         default: 'false'
         required: false
         type: boolean
+      OPLUS_FEATURES:
+        description: 'Enable OPLUS features'
+        required: true
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+        default: 'no'
 
 jobs:
   build:
     strategy:
       matrix:
         include:
-
           - branch: SUSFS
             kernel: 3
+            variant: gpustk
           - branch: SUSFS
             kernel: 4
+            variant: gpustk
           - branch: SUSFS
             kernel: 6
+            variant: gpustk
 
           - branch: NEXT
             kernel: 3
+            variant: uv
           - branch: NEXT
             kernel: 4
+            variant: uv
           - branch: NEXT
             kernel: 6
+            variant: uv
+          - branch: NEXT
+            kernel: 3
+            variant: gpustk
+          - branch: NEXT
+            kernel: 4
+            variant: gpustk
+          - branch: NEXT
+            kernel: 6
+            variant: gpustk
 
           - branch: NOKSU
             kernel: 3
+            variant: gpustk
           - branch: NOKSU
             kernel: 4
+            variant: gpustk
           - branch: NOKSU
             kernel: 6
+            variant: gpustk
 
           - branch: OCUV
             kernel: 1
+            variant: original
           - branch: OCUV
             kernel: 2
+            variant: original
           - branch: OCUV
             kernel: 5
+            variant: original
 
     runs-on: ubuntu-latest
     env:
@@ -109,7 +134,8 @@ jobs:
         with:
           path: |
             clang-neutron
-            clang-aosp
+            clang-aosp-20
+            clang-aosp-21
           key: clang-toolchain-${{ github.event.inputs.CLANG_TOOLCHAIN }}-${{ hashFiles('**/clang-version') }}
           restore-keys: |
             clang-toolchain-${{ github.event.inputs.CLANG_TOOLCHAIN }}-
@@ -117,11 +143,16 @@ jobs:
       - name: Download & Extract Clang (If not cached)
         if: steps.cache-clang.outputs.cache-hit != 'true'
         run: |
-          if [[ "${{ github.event.inputs.CLANG_TOOLCHAIN }}" == "aosp clang" ]]; then
+          if [[ "${{ github.event.inputs.CLANG_TOOLCHAIN }}" == "aosp clang 20" ]]; then
             wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r547379.tar.gz -O clang.tar.gz
-            mkdir -p clang-aosp
-            tar -xf clang.tar.gz -C clang-aosp
-            echo "aosp-r547379" > clang-version
+            mkdir -p clang-aosp-20
+            tar -xf clang.tar.gz -C clang-aosp-20
+            echo "aosp-20-r547379" > clang-version
+          elif [[ "${{ github.event.inputs.CLANG_TOOLCHAIN }}" == "aosp clang 21" ]]; then
+            wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/603a89415bbb04dff8bc577b95534479ec13fdc5/clang-r574158.tar.gz -O clang.tar.gz -O clang.tar.gz
+            mkdir -p clang-aosp-21
+            tar -xf clang.tar.gz -C clang-aosp-21
+            echo "aosp-21-r574158" > clang-version
           else
             wget https://github.com/Neutron-Toolchains/clang-build-catalogue/releases/download/10032024/neutron-clang-10032024.tar.zst -O clang.tar.zst
             mkdir -p clang-neutron
@@ -132,8 +163,10 @@ jobs:
 
       - name: Set Clang Path
         run: |
-          if [[ "${{ github.event.inputs.CLANG_TOOLCHAIN }}" == "aosp clang" ]]; then
-            echo "CLANG_PATH=$(pwd)/clang-aosp/bin" >> $GITHUB_ENV
+          if [[ "${{ github.event.inputs.CLANG_TOOLCHAIN }}" == "aosp clang 20" ]]; then
+            echo "CLANG_PATH=$(pwd)/clang-aosp-20/bin" >> $GITHUB_ENV
+          elif [[ "${{ github.event.inputs.CLANG_TOOLCHAIN }}" == "aosp clang 21" ]]; then
+            echo "CLANG_PATH=$(pwd)/clang-aosp-21/bin" >> $GITHUB_ENV
           else
             echo "CLANG_PATH=$(pwd)/clang-neutron/bin" >> $GITHUB_ENV
           fi
@@ -148,7 +181,7 @@ jobs:
                   echo "BRANCH_NAME=NEXT" >> $GITHUB_ENV ;;
             NOKSU) echo "KERNEL_TREE_BRANCH=${{ github.event.inputs.KERNEL_TREE_BRANCH_3 }}" >> $GITHUB_ENV
                    echo "BRANCH_NAME=NOKSU" >> $GITHUB_ENV ;;
-            OCUV) echo "KERNEL_TREE_BRANCH=${{ github.event.inputs.KERNEL_TREE_BRANCH_4 }}" >> $GITHUB_ENV
+            OCUV) echo "KERNEL_TREE_BRANCH=ocuv" >> $GITHUB_ENV
                   echo "BRANCH_NAME=OCUV" >> $GITHUB_ENV ;;
           esac
 
@@ -176,6 +209,12 @@ jobs:
           /# CONFIG_LTO_CLANG_THIN is not set/c\CONFIG_LTO_CLANG_THIN=y
           ' arch/arm64/configs/vendor/munch_defconfig
 
+      - name: Enable OPLUS Features
+        if: ${{ github.event.inputs.OPLUS_FEATURES == 'yes' }}
+        run: |
+          cd kernel_tree
+          sed -i -e '/# CONFIG_OPLUS_PORT is not set/c\CONFIG_OPLUS_PORT=y' arch/arm64/configs/vendor/munch_defconfig
+
       - name: Remove cycle count
         run: |
           cd kernel_tree
@@ -195,8 +234,8 @@ jobs:
           sed -i -e '/<2841600>,/c\<2841600>;' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
           sed -i -e '/<3187200>;/d' arch/arm64/boot/dts/vendor/qcom/kona.dtsi
 
-      - name: Revert to stock gpufreq
-        if: (matrix.kernel == 3 || matrix.kernel == 4 || matrix.kernel == 6) && matrix.branch != 'OCUV'
+      - name: Revert to stock gpufreq (for gpustk variant)
+        if: matrix.variant == 'gpustk'
         run: |
           cd kernel_tree
           patch -p1 -f < "0001-stock-gpu-freq.patch"
@@ -241,6 +280,15 @@ jobs:
             elif [[ "${{ matrix.kernel }}" == 5 ]]; then
               mv out/arch/arm64/boot/dtb.img ../munch-slightuc-dtb
             fi
+          elif [[ "${{ matrix.branch }}" == "NEXT" && "${{ matrix.variant }}" == "uv" ]]; then
+            if [[ "${{ matrix.kernel }}" == 3 ]]; then
+              cp out/arch/arm64/boot/Image ../Image
+              mv out/arch/arm64/boot/dtb.img ../munch-normal-uv-dtb
+            elif [[ "${{ matrix.kernel }}" == 4 ]]; then
+              mv out/arch/arm64/boot/dtb.img ../munch-effcpu-uv-dtb
+            elif [[ "${{ matrix.kernel }}" == 6 ]]; then
+              mv out/arch/arm64/boot/dtb.img ../munch-slightuc-uv-dtb
+            fi
           else
             if [[ "${{ matrix.kernel }}" == 3 ]]; then
               cp out/arch/arm64/boot/Image ../Image
@@ -278,28 +326,53 @@ jobs:
           path: |
             munch-slightuc-dtb
 
-      - name: Upload Branch Kernel 3 (with Image)
+      - name: Upload NEXT UV Kernel 3 (with Image)
         uses: actions/upload-artifact@v4
-        if: matrix.kernel == 3 && matrix.branch != 'OCUV'
+        if: matrix.kernel == 3 && matrix.branch == 'NEXT' && matrix.variant == 'uv'
         with:
-          name: kernel-${{ matrix.branch }}-3-base
+          name: next-uv-kernel-3-base
+          path: |
+            Image
+            munch-normal-uv-dtb
+
+      - name: Upload NEXT UV Kernel 4
+        uses: actions/upload-artifact@v4
+        if: matrix.kernel == 4 && matrix.branch == 'NEXT' && matrix.variant == 'uv'
+        with:
+          name: next-uv-kernel-4
+          path: |
+            munch-effcpu-uv-dtb
+
+      - name: Upload NEXT UV Kernel 6
+        uses: actions/upload-artifact@v4
+        if: matrix.kernel == 6 && matrix.branch == 'NEXT' && matrix.variant == 'uv'
+        with:
+          name: next-uv-kernel-6
+          path: |
+            munch-slightuc-uv-dtb
+
+      - name: Upload Branch Kernel 3 (with Image) - GPUSTK
+        uses: actions/upload-artifact@v4
+        if: matrix.kernel == 3 && matrix.variant == 'gpustk'
+        with:
+          name: kernel-${{ matrix.branch }}-3-gpustk
           path: |
             Image
             munch-normal-gpustk-dtb
 
-      - name: Upload Branch Kernel 4
+      - name: Upload Branch Kernel 4 - GPUSTK
         uses: actions/upload-artifact@v4
-        if: matrix.kernel == 4 && matrix.branch != 'OCUV'
+        if: matrix.kernel == 4 && matrix.variant == 'gpustk'
         with:
-          name: kernel-${{ matrix.branch }}-4
+          name: kernel-${{ matrix.branch }}-4-gpustk
           path: |
             munch-effcpu-gpustk-dtb
 
-      - name: Upload Branch Kernel 6
+      - name: Upload Branch Kernel 6 - GPUSTK
         uses: actions/upload-artifact@v4
-        if: matrix.kernel == 6 && matrix.branch != 'OCUV'
+        if: matrix.kernel == 6 && matrix.variant == 'gpustk'
         with:
-          name: kernel-${{ matrix.branch }}-6
+          name: kernel-${{ matrix.branch }}-6-gpustk
           path: |
             munch-slightuc-gpustk-dtb
 
@@ -329,41 +402,74 @@ jobs:
           name: ocuv-kernel-5-components
           path: ocuv-kernel-5
 
-      - name: Download Branch Kernel 3 (with Image)
+      - name: Download NEXT UV Kernel 3 (with Image)
         uses: actions/download-artifact@v4
         with:
-          name: kernel-${{ matrix.branch }}-3-base
-          path: branch-kernel-3
+          name: next-uv-kernel-3-base
+          path: next-uv-kernel-3
 
-      - name: Download Branch Kernel 4
+      - name: Download NEXT UV Kernel 4
         uses: actions/download-artifact@v4
         with:
-          name: kernel-${{ matrix.branch }}-4
-          path: branch-kernel-4
+          name: next-uv-kernel-4
+          path: next-uv-kernel-4
 
-      - name: Download Branch Kernel 6
+      - name: Download NEXT UV Kernel 6
         uses: actions/download-artifact@v4
         with:
-          name: kernel-${{ matrix.branch }}-6
-          path: branch-kernel-6
+          name: next-uv-kernel-6
+          path: next-uv-kernel-6
+
+      - name: Download Branch Kernel 3 (with Image) - GPUSTK
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-${{ matrix.branch }}-3-gpustk
+          path: branch-kernel-3-gpustk
+
+      - name: Download Branch Kernel 4 - GPUSTK
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-${{ matrix.branch }}-4-gpustk
+          path: branch-kernel-4-gpustk
+
+      - name: Download Branch Kernel 6 - GPUSTK
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-${{ matrix.branch }}-6-gpustk
+          path: branch-kernel-6-gpustk
 
       - name: Clone AnyKernel3
         run: git clone --recursive --depth=1 ${{ github.event.inputs.ANYKERNEL_URL }} -b fusionX AnyKernel3-${{ matrix.branch }}
 
-      - name: Combine All Kernel Components
+      - name: Create Folder Structure and Organize Files
         run: |
-          cp branch-kernel-3/* AnyKernel3-${{ matrix.branch }}/
-          cp ocuv-kernel-1/* AnyKernel3-${{ matrix.branch }}/
-          cp ocuv-kernel-2/* AnyKernel3-${{ matrix.branch }}/
-          cp ocuv-kernel-5/* AnyKernel3-${{ matrix.branch }}/
-          cp branch-kernel-4/* AnyKernel3-${{ matrix.branch }}/
-          cp branch-kernel-6/* AnyKernel3-${{ matrix.branch }}/
+          mkdir -p AnyKernel3-${{ matrix.branch }}/dtbs/{ocuv,uv,stock}
+          
+          cp branch-kernel-3-gpustk/Image AnyKernel3-${{ matrix.branch }}/
+          
+          cp ocuv-kernel-1/munch-aosp-dtbo.img AnyKernel3-${{ matrix.branch }}/
+          cp ocuv-kernel-2/munch-miui-dtbo.img AnyKernel3-${{ matrix.branch }}/
+          cp ocuv-kernel-1/munch-normal-dtb AnyKernel3-${{ matrix.branch }}/dtbs/ocuv/
+          cp ocuv-kernel-2/munch-effcpu-dtb AnyKernel3-${{ matrix.branch }}/dtbs/ocuv/
+          cp ocuv-kernel-5/munch-slightuc-dtb AnyKernel3-${{ matrix.branch }}/dtbs/ocuv/
+          
+          cp next-uv-kernel-3/munch-normal-uv-dtb AnyKernel3-${{ matrix.branch }}/dtbs/uv/
+          cp next-uv-kernel-4/munch-effcpu-uv-dtb AnyKernel3-${{ matrix.branch }}/dtbs/uv/
+          cp next-uv-kernel-6/munch-slightuc-uv-dtb AnyKernel3-${{ matrix.branch }}/dtbs/uv/
+          
+          cp branch-kernel-3-gpustk/munch-normal-gpustk-dtb AnyKernel3-${{ matrix.branch }}/dtbs/stock/
+          cp branch-kernel-4-gpustk/munch-effcpu-gpustk-dtb AnyKernel3-${{ matrix.branch }}/dtbs/stock/
+          cp branch-kernel-6-gpustk/munch-slightuc-gpustk-dtb AnyKernel3-${{ matrix.branch }}/dtbs/stock/
 
       - name: Define ZIP Name
         run: |
           export TZ='Asia/Manila'
           COMPILED_DATE=$(date +%Y%m%d)
-          echo "ZIP_NAME=[FusionX-${{ matrix.branch }}]-${{ github.event.inputs.VERSION }}-$COMPILED_DATE" >> $GITHUB_ENV
+          EXTRA=""
+          if [[ "${{ github.event.inputs.OPLUS_FEATURES }}" == "yes" ]]; then
+            EXTRA="-OPLUS"
+          fi
+          echo "ZIP_NAME=[FusionX-${{ matrix.branch }}${EXTRA}]-${{ github.event.inputs.VERSION }}-$COMPILED_DATE" >> $GITHUB_ENV
           echo "KERNEL_TYPE=${{ matrix.branch }}" >> $GITHUB_ENV
 
       - name: Create ZIP file
@@ -394,6 +500,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           CLANG_TOOLCHAIN: ${{ github.event.inputs.CLANG_TOOLCHAIN }}
           LTO_CONFIG: ${{ github.event.inputs.USE_LTO_THIN }}
+          OPLUS_FEATURES: ${{ github.event.inputs.OPLUS_FEATURES }}
           KERNEL_TREE_BRANCH_1: ${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}
           KERNEL_TREE_BRANCH_2: ${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}
           KERNEL_TREE_BRANCH_3: ${{ github.event.inputs.KERNEL_TREE_BRANCH_3 }}
@@ -430,6 +537,7 @@ jobs:
           chat_id = os.environ.get('TELEGRAM_CHAT_ID')
           clang = os.environ.get('CLANG_TOOLCHAIN', 'aosp')
           lto = 'THIN' if os.environ.get('LTO_CONFIG') == 'true' else 'FULL'
+          oplus = 'YES' if os.environ.get('OPLUS_FEATURES') == 'yes' else 'NO'
           build_start_time = os.environ.get('BUILD_START_TIME')
           version = os.environ.get('VERSION', '2.x')
           manila_tz = timezone(timedelta(hours=8))
@@ -468,6 +576,7 @@ jobs:
             <b> Version:</b>     {version}
             <b> Lto:</b>         {lto}
             <b> Clang:</b>       {clang}
+            <b> OPLUS:</b>       {oplus}
             <b> Build Type:</b>  {build_type}
             ==============================
             </pre>"""
