@@ -33,7 +33,7 @@ on:
           - wip-noksu
       VERSION:
         description: 'Zip Version'
-        default: '2.x'
+        default: '2.0'
         required: false
       ANYKERNEL_URL:
         description: 'AnyKernel Url (leave blank if you dont want AnyKernel)'
@@ -439,7 +439,7 @@ jobs:
           path: branch-kernel-6-gpustk
 
       - name: Clone AnyKernel3
-        run: git clone --recursive --depth=1 ${{ github.event.inputs.ANYKERNEL_URL }} -b fusionX AnyKernel3-${{ matrix.branch }}
+        run: git clone --recursive --depth=1 ${{ github.event.inputs.ANYKERNEL_URL }} -b test AnyKernel3-${{ matrix.branch }}
 
       - name: Create Folder Structure and Organize Files
         run: |
