@@ -41,7 +41,7 @@ on:
         required: false
       CUSTOM_SED:
         description: 'Custom Kernel Version'
-        default: '-FusionX'
+        default: '-FusionX-2.0'
         required: false
       CLANG_TOOLCHAIN:
         description: 'Clang toolchain selection'
@@ -192,8 +192,8 @@ jobs:
       - name: Kernel Version
         run: |
           cd kernel_tree
-          if [[ "${{ github.event.inputs.CUSTOM_SED }}" != "-FusionX" ]]; then
-            sed -i -e 's/CONFIG_LOCALVERSION="-FusionX"/CONFIG_LOCALVERSION="${{ github.event.inputs.CUSTOM_SED }}"/' arch/arm64/configs/vendor/munch_defconfig
+          if [[ "${{ github.event.inputs.CUSTOM_SED }}" != "-FusionX-2.0" ]]; then
+            sed -i -e 's/CONFIG_LOCALVERSION="-FusionX-2.0"/CONFIG_LOCALVERSION="${{ github.event.inputs.CUSTOM_SED }}"/' arch/arm64/configs/vendor/munch_defconfig
           fi
 
       - name: Change LTO Configuration to THIN
