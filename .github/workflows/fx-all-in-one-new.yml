@@ -261,15 +261,25 @@ jobs:
       - name: Build Kernel
         run: |
           export PATH="${{ env.CLANG_PATH }}:$PATH"
-          export ARCH=arm64
-          export SUBARCH=ARM64
           export KBUILD_BUILD_USER="senx"
           export KBUILD_BUILD_HOST="ubuntu"
           export KBUILD_BUILD_TIMESTAMP="$(TZ=UTC-7 date)"
-          cd kernel_tree
-          make O=out vendor/munch_defconfig
-          make O=out CC=clang -j$(nproc --all) CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1
+          export MAKE_ARGS="ARCH=arm64 SUBARCH=arm64 O=out CC=clang CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CLANG_TRIPLE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1"
           
+          cd kernel_tree
+          
+          make $MAKE_ARGS vendor/munch_defconfig
+          scripts/config --file out/.config \
+          -e KSU \
+          -e KSU_MANUAL_HOOK \
+          -e KPROBES \
+          -e HAVE_KPROBES \
+          -e KPROBE_EVENTS \
+          -e KPM \
+          -e KALLSYMS \
+          -e KALLSYMS_ALL
+          make $MAKE_ARGS -j$(nproc --all)
+           
           if [[ "${{ matrix.branch }}" == "OCUV" ]]; then
             if [[ "${{ matrix.kernel }}" == 1 ]]; then
               mv out/arch/arm64/boot/dtbo.img ../munch-aosp-dtbo.img
