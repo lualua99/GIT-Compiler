@@ -242,6 +242,7 @@ jobs:
 
       # 允许 NOKSU 分支应用补丁
       - name: Apply Patches (SUSFS, NEXT and NOKSU)
+        if: matrix.branch == 'NOKSU'
         run: |
           cd kernel_tree
           git clone https://github.com/SukiSU-Ultra/SukiSU_patch.git
