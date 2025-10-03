@@ -49,7 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 安装依赖
-        run: sudo apt install -y flex libncurses6 unzstd patch  # 新增patch工具
+        run: sudo apt install -y flex libncurses6 zstd patch  # 新增patch工具
 
       - name: 缓存工具链
         id: cache-clang
