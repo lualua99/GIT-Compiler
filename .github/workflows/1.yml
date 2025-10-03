@@ -1,0 +1,150 @@
+name: FusionX-Core-Build
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      KERNEL_TREE:
+        description: '内核源码仓库'
+        default: 'https://github.com/lualua99/fusionX_sm8250'
+        required: true
+      KERNEL_BRANCH:
+        description: '编译分支'
+        default: 'wip-susfs'
+        required: true
+      VERSION:
+        description: '版本号'
+        default: '2.0'
+        required: false
+      ANYKERNEL_URL:
+        description: 'AnyKernel仓库'
+        default: 'https://github.com/SenseiiX/AnyKernel3'
+        required: false
+      CLANG_TOOLCHAIN:
+        description: 'Clang工具链'
+        default: 'aosp clang 20'
+        required: true
+        type: choice
+        options: [neutron, 'aosp clang 20', 'aosp clang 21']
+      USE_LTO_THIN:
+        description: '使用LTO THIN'
+        default: 'false'
+        type: boolean
+      OPLUS_FEATURES:
+        description: '启用OPLUS特性'
+        default: 'no'
+        type: choice
+        options: [yes, no]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 安装依赖
+        run: sudo apt install -y flex libncurses6 unzstd
+
+      - name: 缓存工具链
+        id: cache-clang
+        uses: actions/cache@v4
+        with:
+          path: clang-*
+          key: clang-${{ github.event.inputs.CLANG_TOOLCHAIN }}
+
+      - name: 下载工具链
+        if: steps.cache-clang.outputs.cache-hit != 'true'
+        run: |
+          # 统一工具链目录命名
+          CLANG_DIR="clang-${{ github.event.inputs.CLANG_TOOLCHAIN }}"
+          CLANG_DIR=$(echo $CLANG_DIR | tr ' ' '-')  # 替换空格为连字符
+          
+          case "${{ github.event.inputs.CLANG_TOOLCHAIN }}" in
+            "aosp clang 20")
+              URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r547379.tar.gz" ;;
+            "aosp clang 21")
+              URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/603a89415bbb04dff8bc577b95534479ec13fdc5/clang-r574158.tar.gz" ;;
+            neutron)
+              URL="https://github.com/Neutron-Toolchains/clang-build-catalogue/releases/download/10032024/neutron-clang-10032024.tar.zst" ;;
+          esac
+
+          mkdir -p $CLANG_DIR
+          if [[ $URL == *.zst ]]; then
+            wget $URL -O clang.tar.zst && unzstd -d clang.tar.zst && tar -xf clang.tar -C $CLANG_DIR
+          else
+            wget $URL -O clang.tar.gz && tar -xf clang.tar.gz -C $CLANG_DIR
+          fi
+          echo "CLANG_DIR=$CLANG_DIR" >> $GITHUB_ENV
+
+      - name: 配置工具链路径
+        run: echo "CLANG_PATH=$(pwd)/${{ env.CLANG_DIR }}/bin" >> $GITHUB_ENV
+
+      - name: 克隆内核
+        run: git clone --depth=1 --branch ${{ github.event.inputs.KERNEL_BRANCH }} ${{ github.event.inputs.KERNEL_TREE }} kernel
+
+      - name: 调整内核配置
+        run: |
+          cd kernel
+          DEFCONFIG="arch/arm64/configs/vendor/munch_defconfig"
+          
+          # LTO配置
+          ${{ github.event.inputs.USE_LTO_THIN == 'true' }} && \
+            sed -i 's/CONFIG_LTO_CLANG_FULL=y/# CONFIG_LTO_CLANG_FULL is not set/; s/# CONFIG_LTO_CLANG_THIN is not set/CONFIG_LTO_CLANG_THIN=y/' $DEFCONFIG
+          
+          # OPLUS特性
+          ${{ github.event.inputs.OPLUS_FEATURES == 'yes' }} && \
+            sed -i 's/# CONFIG_OPLUS_PORT is not set/CONFIG_OPLUS_PORT=y/' $DEFCONFIG
+          
+          # 启用必要功能
+          scripts/config --file $DEFCONFIG -e KSU -e KPROBES -e KALLSYMS
+
+      - name: 编译内核
+        run: |
+          export PATH="${{ env.CLANG_PATH }}:$PATH"
+          cd kernel
+          make ARCH=arm64 O=out CC=clang CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 vendor/munch_defconfig
+          make ARCH=arm64 O=out CC=clang CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 -j$(nproc)
+          
+          # 复制产物
+          cp out/arch/arm64/boot/{Image,dtb.img,dtbo.img} ../
+
+      - name: 保存内核产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-output
+          path: |
+            Image
+            dtb.img
+            dtbo.img
+
+  package:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: 获取内核文件
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-output
+          path: .
+
+      - name: 克隆AnyKernel
+        run: git clone --depth=1 ${{ github.event.inputs.ANYKERNEL_URL }} -b fusionX AnyKernel
+
+      - name: 打包为可刷文件
+        run: |
+          cp {Image,dtb.img,dtbo.img} AnyKernel/
+          cd AnyKernel
+          zip -r9 ../FusionX-${{ github.event.inputs.VERSION }}-$(date +%Y%m%d).zip . -x .git*
+
+      - name: 保存ZIP产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: flashable-zip
+          path: FusionX-*.zip
+
+  notify:
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - name: 获取ZIP文件
+        uses: actions/download-artifact@v4
+        with:
+          name: flashable-zip
+          path: .
