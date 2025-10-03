@@ -100,8 +100,16 @@ jobs:
           export PATH="${{ env.CLANG_PATH }}:$PATH"
           cd kernel
           make ARCH=arm64 O=out CC=clang CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 vendor/munch_defconfig
+          scripts/config --file out/.config \
+          -e KSU \
+          -e KSU_MANUAL_HOOK \
+          -e KPROBES \
+          -e HAVE_KPROBES \
+          -e KPROBE_EVENTS \
+          -e KPM \
+          -e KALLSYMS \
+          -e KALLSYMS_ALL
           make ARCH=arm64 O=out CC=clang CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 -j$(nproc)
-          
           # 复制产物
           cp out/arch/arm64/boot/{Image,dtb.img,dtbo.img} ../
 
