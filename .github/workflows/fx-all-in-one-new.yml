@@ -149,7 +149,7 @@ jobs:
             tar -xf clang.tar.gz -C clang-aosp-20
             echo "aosp-20-r547379" > clang-version
           elif [[ "${{ github.event.inputs.CLANG_TOOLCHAIN }}" == "aosp clang 21" ]]; then
-            wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/603a89415bbb04dff8bc577b95534479ec13fdc5/clang-r574158.tar.gz -O clang.tar.gz -O clang.tar.gz
+            wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/603a89415bbb04dff8bc577b95534479ec13fdc5/clang-r574158.tar.gz -O clang.tar.gz
             mkdir -p clang-aosp-21
             tar -xf clang.tar.gz -C clang-aosp-21
             echo "aosp-21-r574158" > clang-version
@@ -240,11 +240,19 @@ jobs:
           cd kernel_tree
           patch -p1 -f < "0001-stock-gpu-freq.patch"
 
-      - name: Apply Patches (SUSFS and NEXT only)
-        if: matrix.branch != 'NOKSU' && matrix.branch != 'OCUV'
+      # 允许 NOKSU 分支应用补丁
+      - name: Apply Patches (SUSFS, NEXT and NOKSU)
         run: |
           cd kernel_tree
-          bash nextpatch.sh
+          git clone https://github.com/SukiSU-Ultra/SukiSU_patch.git
+          patch -p1 < SukiSU_patch/4.19/ksu_hooks_sukisu_4.19.patch
+
+      # NOKSU 分支专属步骤：打完补丁后执行脚本生成完整配置
+      - name: Generate full config for NOKSU (after patches)
+        if: matrix.branch == 'NOKSU'
+        run: |
+          cd kernel_tree  # 进入内核源码目录执行脚本
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s nongki
 
       - name: Apply Modifications (if modified build)
         if: matrix.kernel == 2 || matrix.kernel == 4
@@ -492,114 +500,3 @@ jobs:
         with:
           name: ${{ env.ZIP_NAME }}
           path: ${{ env.ZIP_NAME }}.zip
-
-  telegram_notification:
-    needs: package_anykernel
-    runs-on: ubuntu-latest
-    if: always()
-
-    steps:
-      - name: Download all ZIP artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Send Telegram notifications
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          CLANG_TOOLCHAIN: ${{ github.event.inputs.CLANG_TOOLCHAIN }}
-          LTO_CONFIG: ${{ github.event.inputs.USE_LTO_THIN }}
-          OPLUS_FEATURES: ${{ github.event.inputs.OPLUS_FEATURES }}
-          KERNEL_TREE_BRANCH_1: ${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}
-          KERNEL_TREE_BRANCH_2: ${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}
-          KERNEL_TREE_BRANCH_3: ${{ github.event.inputs.KERNEL_TREE_BRANCH_3 }}
-          BUILD_START_TIME: ${{ github.run_started_at }}
-          VERSION: ${{ github.event.inputs.VERSION }}
-        run: |
-          cat > send_telegram.py << 'EOF'
-          import os
-          import requests
-          import glob
-          from datetime import datetime, timezone, timedelta
-
-          def send_telegram_file(bot_token, chat_id, message, file_path):
-              url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
-              with open(file_path, 'rb') as f:
-                  files = {'document': f}
-                  data = {
-                      'chat_id': chat_id,
-                      'caption': message,
-                      'parse_mode': 'HTML'
-                  }
-                  response = requests.post(url, data=data, files=files)
-              return response.json()
-
-          def send_telegram_message(bot_token, chat_id, message):
-              url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-              data = {
-                  'chat_id': chat_id,
-                  'text': message,
-                  'parse_mode': 'HTML'
-              }
-              return requests.post(url, data=data).json()
-          bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
-          chat_id = os.environ.get('TELEGRAM_CHAT_ID')
-          clang = os.environ.get('CLANG_TOOLCHAIN', 'aosp')
-          lto = 'THIN' if os.environ.get('LTO_CONFIG') == 'true' else 'FULL'
-          oplus = 'YES' if os.environ.get('OPLUS_FEATURES') == 'yes' else 'NO'
-          build_start_time = os.environ.get('BUILD_START_TIME')
-          version = os.environ.get('VERSION', '2.x')
-          manila_tz = timezone(timedelta(hours=8))
-          build_date = datetime.now(manila_tz).strftime('%Y-%m-%d %H:%M:%S')
-          zip_files = glob.glob('artifacts/**/*.zip', recursive=True)
-          
-          if not bot_token or not chat_id:
-              print("Missing Telegram credentials")
-              exit(1)
-              
-          if not zip_files:
-              send_telegram_message(bot_token, chat_id, "❌ <b>Build Failed!</b>")
-              exit(1)
-
-          for zip_file in zip_files:
-              file_name = os.path.basename(zip_file)
-              
-              if "SUSFS" in file_name:
-                  branch_info = os.environ.get('KERNEL_TREE_BRANCH_1', 'susfs1')
-                  build_type = "SUSFS"
-              elif "NEXT" in file_name:
-                  branch_info = os.environ.get('KERNEL_TREE_BRANCH_2', 'next1')
-                  build_type = "NEXT"
-              elif "NOKSU" in file_name:
-                  branch_info = os.environ.get('KERNEL_TREE_BRANCH_3', 'noksu1')
-                  build_type = "NOKSU"
-              else:
-                  branch_info = "unknown"
-                  build_type = "Unknown"
-              
-              caption = f"""<pre>
-            <b> FusionX Build Complete! </b>
-            ==============================
-            <b> Date:</b>        {build_date}
-            <b> Branch:</b>      {branch_info}
-            <b> Version:</b>     {version}
-            <b> Lto:</b>         {lto}
-            <b> Clang:</b>       {clang}
-            <b> OPLUS:</b>       {oplus}
-            <b> Build Type:</b>  {build_type}
-            ==============================
-            </pre>"""
-              
-              try:
-                  result = send_telegram_file(bot_token, chat_id, caption, zip_file)
-                  if result.get('ok'):
-                      print(f"✅ Successfully sent {file_name}")
-                  else:
-                      print(f"❌ Failed to send {file_name}: {result}")
-              except Exception as e:
-                  print(f"❌ Error sending {file_name}: {str(e)}")
-
-          EOF
-
-          python3 send_telegram.py
