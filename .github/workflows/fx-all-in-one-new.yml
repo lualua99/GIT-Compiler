@@ -71,7 +71,7 @@ jobs:
     strategy:
       matrix:
         include:
-          # 移除SUSFS和NEXT相关的编译配置
+          # 仅保留 NOKSU 和 OCUV 分支的编译配置
           - branch: NOKSU
             kernel: 3
             variant: gpustk
@@ -147,10 +147,6 @@ jobs:
         run: |
           echo "KERNEL_TREE=${{ github.event.inputs.KERNEL_TREE_1 }}" >> $GITHUB_ENV
           case "${{ matrix.branch }}" in
-            SUSFS) echo "KERNEL_TREE_BRANCH=${{ github.event.inputs.KERNEL_TREE_BRANCH_1 }}" >> $GITHUB_ENV
-                   echo "BRANCH_NAME=SUSFS" >> $GITHUB_ENV ;;
-            NEXT) echo "KERNEL_TREE_BRANCH=${{ github.event.inputs.KERNEL_TREE_BRANCH_2 }}" >> $GITHUB_ENV
-                  echo "BRANCH_NAME=NEXT" >> $GITHUB_ENV ;;
             NOKSU) echo "KERNEL_TREE_BRANCH=${{ github.event.inputs.KERNEL_TREE_BRANCH_3 }}" >> $GITHUB_ENV
                    echo "BRANCH_NAME=NOKSU" >> $GITHUB_ENV ;;
             OCUV) echo "KERNEL_TREE_BRANCH=ocuv" >> $GITHUB_ENV
@@ -212,8 +208,8 @@ jobs:
           cd kernel_tree
           patch -p1 -f < "0001-stock-gpu-freq.patch"
 
-      # 允许 NOKSU 分支应用补丁
-      - name: Apply Patches (SUSFS, NEXT and NOKSU)
+      # 仅保留 NOKSU 分支的补丁应用步骤
+      - name: Apply Patches (NOKSU)
         if: matrix.branch == 'NOKSU'
         run: |
           cd kernel_tree
@@ -224,7 +220,7 @@ jobs:
       - name: Generate full config for NOKSU (after patches)
         if: matrix.branch == 'NOKSU'
         run: |
-          cd kernel_tree  # 进入内核源码目录执行脚本
+          cd kernel_tree
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s nongki
 
       - name: Apply Modifications (if modified build)
@@ -271,15 +267,6 @@ jobs:
             elif [[ "${{ matrix.kernel }}" == 5 ]]; then
               mv out/arch/arm64/boot/dtb.img ../munch-slightuc-dtb
             fi
-          elif [[ "${{ matrix.branch }}" == "NEXT" && "${{ matrix.variant }}" == "uv" ]]; then
-            if [[ "${{ matrix.kernel }}" == 3 ]]; then
-              cp out/arch/arm64/boot/Image ../Image
-              mv out/arch/arm64/boot/dtb.img ../munch-normal-uv-dtb
-            elif [[ "${{ matrix.kernel }}" == 4 ]]; then
-              mv out/arch/arm64/boot/dtb.img ../munch-effcpu-uv-dtb
-            elif [[ "${{ matrix.kernel }}" == 6 ]]; then
-              mv out/arch/arm64/boot/dtb.img ../munch-slightuc-uv-dtb
-            fi
           else
             if [[ "${{ matrix.kernel }}" == 3 ]]; then
               cp out/arch/arm64/boot/Image ../Image
@@ -291,6 +278,7 @@ jobs:
             fi
           fi
 
+      # OCUV 分支产物上传
       - name: Upload OCUV Kernel 1 Components
         uses: actions/upload-artifact@v4
         if: matrix.kernel == 1 && matrix.branch == 'OCUV'
@@ -317,31 +305,7 @@ jobs:
           path: |
             munch-slightuc-dtb
 
-      - name: Upload NEXT UV Kernel 3 (with Image)
-        uses: actions/upload-artifact@v4
-        if: matrix.kernel == 3 && matrix.branch == 'NEXT' && matrix.variant == 'uv'
-        with:
-          name: next-uv-kernel-3-base
-          path: |
-            Image
-            munch-normal-uv-dtb
-
-      - name: Upload NEXT UV Kernel 4
-        uses: actions/upload-artifact@v4
-        if: matrix.kernel == 4 && matrix.branch == 'NEXT' && matrix.variant == 'uv'
-        with:
-          name: next-uv-kernel-4
-          path: |
-            munch-effcpu-uv-dtb
-
-      - name: Upload NEXT UV Kernel 6
-        uses: actions/upload-artifact@v4
-        if: matrix.kernel == 6 && matrix.branch == 'NEXT' && matrix.variant == 'uv'
-        with:
-          name: next-uv-kernel-6
-          path: |
-            munch-slightuc-uv-dtb
-
+      # NOKSU 分支产物上传（gpustk 变体）
       - name: Upload Branch Kernel 3 (with Image) - GPUSTK
         uses: actions/upload-artifact@v4
         if: matrix.kernel == 3 && matrix.variant == 'gpustk'
@@ -367,80 +331,86 @@ jobs:
           path: |
             munch-slightuc-gpustk-dtb
 
-  # 只展示需要修改的 package_anykernel 部分，其他内容保持不变
-package_anykernel:
-  needs: build
-  strategy:
-    matrix:
-      branch: [NOKSU]  # 只保留NOKSU分支的打包
-  runs-on: ubuntu-latest
+  package_anykernel:
+    needs: build
+    strategy:
+      matrix:
+        branch: [NOKSU]  # 仅打包 NOKSU 分支
+    runs-on: ubuntu-latest
 
-  steps:
-    - name: Download OCUV Kernel 1 Components
-      uses: actions/download-artifact@v4
-      with:
-        name: ocuv-kernel-1-components
-        path: ocuv-kernel-1
+    steps:
+      # 下载 OCUV 分支产物
+      - name: Download OCUV Kernel 1 Components
+        uses: actions/download-artifact@v4
+        with:
+          name: ocuv-kernel-1-components
+          path: ocuv-kernel-1
 
-    - name: Download OCUV Kernel 2 Components
-      uses: actions/download-artifact@v4
-      with:
-        name: ocuv-kernel-2-components
-        path: ocuv-kernel-2
+      - name: Download OCUV Kernel 2 Components
+        uses: actions/download-artifact@v4
+        with:
+          name: ocuv-kernel-2-components
+          path: ocuv-kernel-2
 
-    - name: Download OCUV Kernel 5 Components
-      uses: actions/download-artifact@v4
-      with:
-        name: ocuv-kernel-5-components
-        path: ocuv-kernel-5
+      - name: Download OCUV Kernel 5 Components
+        uses: actions/download-artifact@v4
+        with:
+          name: ocuv-kernel-5-components
+          path: ocuv-kernel-5
 
-    # 删除所有与NEXT相关的下载步骤（这些产物已不再生成）
-    # - name: Download NEXT UV Kernel 3 (with Image)
-    # - name: Download NEXT UV Kernel 4
-    # - name: Download NEXT UV Kernel 6
+      # 下载 NOKSU 分支产物（gpustk 变体）
+      - name: Download Branch Kernel 3 (with Image) - GPUSTK
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-${{ matrix.branch }}-3-gpustk
+          path: branch-kernel-3-gpustk
 
-    - name: Download Branch Kernel 3 (with Image) - GPUSTK
-      uses: actions/download-artifact@v4
-      with:
-        name: kernel-${{ matrix.branch }}-3-gpustk
-        path: branch-kernel-3-gpustk
+      - name: Download Branch Kernel 4 - GPUSTK
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-${{ matrix.branch }}-4-gpustk
+          path: branch-kernel-4-gpustk
 
-    - name: Download Branch Kernel 4 - GPUSTK
-      uses: actions/download-artifact@v4
-      with:
-        name: kernel-${{ matrix.branch }}-4-gpustk
-        path: branch-kernel-4-gpustk
+      - name: Download Branch Kernel 6 - GPUSTK
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-${{ matrix.branch }}-6-gpustk
+          path: branch-kernel-6-gpustk
 
-    - name: Download Branch Kernel 6 - GPUSTK
-      uses: actions/download-artifact@v4
-      with:
-        name: kernel-${{ matrix.branch }}-6-gpustk
-        path: branch-kernel-6-gpustk
+      - name: Clone AnyKernel3
+        run: git clone --recursive --depth=1 ${{ github.event.inputs.ANYKERNEL_URL }} -b fusionX AnyKernel3-${{ matrix.branch }}
 
-    - name: Clone AnyKernel3
-      run: git clone --recursive --depth=1 ${{ github.event.inputs.ANYKERNEL_URL }} -b fusionX AnyKernel3-${{ matrix.branch }}
+      - name: Create Folder Structure and Organize Files
+        run: |
+          mkdir -p AnyKernel3-${{ matrix.branch }}/dtbs/{ocuv,stock}  # 仅保留需要的目录
+          
+          # 复制 NOKSU 内核镜像
+          cp branch-kernel-3-gpustk/Image AnyKernel3-${{ matrix.branch }}/
+          
+          # 复制 OCUV 相关文件
+          cp ocuv-kernel-1/munch-aosp-dtbo.img AnyKernel3-${{ matrix.branch }}/
+          cp ocuv-kernel-2/munch-miui-dtbo.img AnyKernel3-${{ matrix.branch }}/
+          cp ocuv-kernel-1/munch-normal-dtb AnyKernel3-${{ matrix.branch }}/dtbs/ocuv/
+          cp ocuv-kernel-2/munch-effcpu-dtb AnyKernel3-${{ matrix.branch }}/dtbs/ocuv/
+          cp ocuv-kernel-5/munch-slightuc-dtb AnyKernel3-${{ matrix.branch }}/dtbs/ocuv/
+          
+          # 复制 NOKSU (gpustk) 相关文件
+          cp branch-kernel-3-gpustk/munch-normal-gpustk-dtb AnyKernel3-${{ matrix.branch }}/dtbs/stock/
+          cp branch-kernel-4-gpustk/munch-effcpu-gpustk-dtb AnyKernel3-${{ matrix.branch }}/dtbs/stock/
+          cp branch-kernel-6-gpustk/munch-slightuc-gpustk-dtb AnyKernel3-${{ matrix.branch }}/dtbs/stock/
 
-    - name: Create Folder Structure and Organize Files
-      run: |
-        mkdir -p AnyKernel3-${{ matrix.branch }}/dtbs/{ocuv,stock}  # 移除uv目录（NEXT UV相关文件已删除）
-        
-        cp branch-kernel-3-gpustk/Image AnyKernel3-${{ matrix.branch }}/
-        
-        # 保留OCUV相关文件
-        cp ocuv-kernel-1/munch-aosp-dtbo.img AnyKernel3-${{ matrix.branch }}/
-        cp ocuv-kernel-2/munch-miui-dtbo.img AnyKernel3-${{ matrix.branch }}/
-        cp ocuv-kernel-1/munch-normal-dtb AnyKernel3-${{ matrix.branch }}/dtbs/ocuv/
-        cp ocuv-kernel-2/munch-effcpu-dtb AnyKernel3-${{ matrix.branch }}/dtbs/ocuv/
-        cp ocuv-kernel-5/munch-slightuc-dtb AnyKernel3-${{ matrix.branch }}/dtbs/ocuv/
-        
-        # 删除NEXT UV相关文件的复制步骤（这些文件已不再生成）
-        # cp next-uv-kernel-3/munch-normal-uv-dtb AnyKernel3-${{ matrix.branch }}/dtbs/uv/
-        # cp next-uv-kernel-4/munch-effcpu-uv-dtb AnyKernel3-${{ matrix.branch }}/dtbs/uv/
-        # cp next-uv-kernel-6/munch-slightuc-uv-dtb AnyKernel3-${{ matrix.branch }}/dtbs/uv/
-        
-        # 保留NOKSU的stock相关文件
-        cp branch-kernel-3-gpustk/munch-normal-gpustk-dtb AnyKernel3-${{ matrix.branch }}/dtbs/stock/
-        cp branch-kernel-4-gpustk/munch-effcpu-gpustk-dtb AnyKernel3-${{ matrix.branch }}/dtbs/stock/
-        cp branch-kernel-6-gpustk/munch-slightuc-gpustk-dtb AnyKernel3-${{ matrix.branch }}/dtbs/stock/
+      # 以下为打包和上传步骤（保持原有逻辑）
+      - name: Define ZIP Name
+        run: |
+          echo "ZIP_NAME=FusionX-${{ matrix.branch }}-${{ github.event.inputs.VERSION }}${{ github.event.inputs.CUSTOM_SED }}.zip" >> $GITHUB_ENV
 
-    # 后续步骤（定义ZIP名称、创建ZIP、上传）保持不变
+      - name: Zip AnyKernel3 Folder
+        run: |
+          cd AnyKernel3-${{ matrix.branch }}
+          zip -r9 ../${{ env.ZIP_NAME }} *
+
+      - name: Upload ZIP to Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ZIP_NAME }}
+          path: ${{ env.ZIP_NAME }}
