@@ -34,13 +34,22 @@ on:
         default: 'no'
         type: choice
         options: [yes, no]
+      # 新增：补丁仓库配置（可选，默认使用一个示例仓库）
+      PATCH_REPO:
+        description: '4.19 hook补丁仓库'
+        default: 'https://github.com/SukiSU-Ultra/SukiSU_patch.git'
+        required: true
+      PATCH_FILE:
+        description: '补丁文件名（仓库内的路径）'
+        default: '4.19/ksu_hooks_sukisu_4.19.patch'
+        required: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: 安装依赖
-        run: sudo apt install -y flex libncurses6 unzstd
+        run: sudo apt install -y flex libncurses6 unzstd patch  # 新增patch工具
 
       - name: 缓存工具链
         id: cache-clang
@@ -52,9 +61,8 @@ jobs:
       - name: 下载工具链
         if: steps.cache-clang.outputs.cache-hit != 'true'
         run: |
-          # 统一工具链目录命名
           CLANG_DIR="clang-${{ github.event.inputs.CLANG_TOOLCHAIN }}"
-          CLANG_DIR=$(echo $CLANG_DIR | tr ' ' '-')  # 替换空格为连字符
+          CLANG_DIR=$(echo $CLANG_DIR | tr ' ' '-')
           
           case "${{ github.event.inputs.CLANG_TOOLCHAIN }}" in
             "aosp clang 20")
@@ -79,20 +87,29 @@ jobs:
       - name: 克隆内核
         run: git clone --depth=1 --branch ${{ github.event.inputs.KERNEL_BRANCH }} ${{ github.event.inputs.KERNEL_TREE }} kernel
 
+      # 新增：克隆并应用4.19 hook补丁
+      - name: 克隆补丁仓库
+        run: git clone --depth=1 ${{ github.event.inputs.PATCH_REPO }} patches
+
+      - name: 应用4.19 hook补丁
+        run: |
+          cd kernel  # 进入内核源码目录
+          # 应用补丁（-p1表示忽略补丁路径中的第一个目录层级，适应大多数补丁格式）
+          patch -p1 < ../patches/${{ github.event.inputs.PATCH_FILE }}
+          # 若补丁可能有冲突，可添加--ignore-whitespace忽略空格差异（可选）
+          # patch -p1 --ignore-whitespace < ../patches/${{ github.event.inputs.PATCH_FILE }}
+
       - name: 调整内核配置
         run: |
           cd kernel
           DEFCONFIG="arch/arm64/configs/vendor/munch_defconfig"
           
-          # LTO配置
           ${{ github.event.inputs.USE_LTO_THIN == 'true' }} && \
             sed -i 's/CONFIG_LTO_CLANG_FULL=y/# CONFIG_LTO_CLANG_FULL is not set/; s/# CONFIG_LTO_CLANG_THIN is not set/CONFIG_LTO_CLANG_THIN=y/' $DEFCONFIG
           
-          # OPLUS特性
           ${{ github.event.inputs.OPLUS_FEATURES == 'yes' }} && \
             sed -i 's/# CONFIG_OPLUS_PORT is not set/CONFIG_OPLUS_PORT=y/' $DEFCONFIG
           
-          # 启用必要功能
           scripts/config --file $DEFCONFIG -e KSU -e KPROBES -e KALLSYMS
 
       - name: 编译内核
@@ -110,7 +127,6 @@ jobs:
           -e KALLSYMS \
           -e KALLSYMS_ALL
           make ARCH=arm64 O=out CC=clang CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 -j$(nproc)
-          # 复制产物
           cp out/arch/arm64/boot/{Image,dtb.img,dtbo.img} ../
 
       - name: 保存内核产物
