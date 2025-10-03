@@ -71,35 +71,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - branch: SUSFS
-            kernel: 3
-            variant: gpustk
-          - branch: SUSFS
-            kernel: 4
-            variant: gpustk
-          - branch: SUSFS
-            kernel: 6
-            variant: gpustk
-
-          - branch: NEXT
-            kernel: 3
-            variant: uv
-          - branch: NEXT
-            kernel: 4
-            variant: uv
-          - branch: NEXT
-            kernel: 6
-            variant: uv
-          - branch: NEXT
-            kernel: 3
-            variant: gpustk
-          - branch: NEXT
-            kernel: 4
-            variant: gpustk
-          - branch: NEXT
-            kernel: 6
-            variant: gpustk
-
+          # 移除SUSFS和NEXT相关的编译配置
           - branch: NOKSU
             kernel: 3
             variant: gpustk
@@ -399,7 +371,7 @@ jobs:
     needs: build
     strategy:
       matrix:
-        branch: [SUSFS, NEXT, NOKSU]
+        branch: [NOKSU]  # 只保留NOKSU分支的打包
     runs-on: ubuntu-latest
 
     steps:
